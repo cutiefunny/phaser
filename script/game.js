@@ -73,8 +73,9 @@ function create ()
 
     this.input.on('pointerup', function(pointer){
         //console.log(this.click.buttons==1 ? "click" : "no");
-        var speed = (pointer.upTime - pointer.downTime)/100;
-        console.log(speed);
+        //var speed = (pointer.upTime - pointer.downTime)/100;
+        var speed = 1;
+        console.log(pointer);
         hero.setVelocityY(((pointer.upY - pointer.downY) * 5)/speed);
         hero.setVelocityX(((pointer.upX - pointer.downX) * 1)/speed);
     }, this);
