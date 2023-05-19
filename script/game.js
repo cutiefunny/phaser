@@ -3,7 +3,7 @@ var config = {
     scale:{
         parent: "game",
         width: 400,
-        height: 300
+        height: 600
     },
     transparent: true,
     physics: {
