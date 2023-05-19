@@ -65,11 +65,13 @@ function create ()
 
     this.mouse = this.input.mousePointer;
     this.input.on('pointerdown', function(pointer){
+<<<<<<< HEAD
         console.log("pointer : " + pointer.x, pointer.y);
         console.log("hero : " + hero.body.x, hero.body.y);
+=======
+>>>>>>> 9797962c7768c3786b13973dee64d531821627c3
             hero.setVelocityY((pointer.y - hero.body.y) * 5);
             hero.setVelocityX((pointer.x - hero.body.x) * 1);
-            jumpCnt++;
     }, this);
 }
 
