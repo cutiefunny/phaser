@@ -63,18 +63,37 @@ function create ()
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.spacebar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-    this.mouse = this.input.mousePointer;
-    this.input.on('pointerdown', function(pointer){
-            hero.setVelocityY((pointer.y - hero.body.y) * 5);
-            hero.setVelocityX((pointer.x - hero.body.x) * 1);
+    this.click = this.input.activePointer;
+
+    //this.mouse = this.input.mousePointer;
+    // this.input.on('pointerdown', function(pointer){
+    //     hero.setVelocityY((pointer.y - hero.body.y) * 5);
+    //     hero.setVelocityX((pointer.x - hero.body.x) * 1);
+    // }, this);
+
+    this.input.on('pointerup', function(pointer){
+        //console.log(this.click.buttons==1 ? "click" : "no");
+        console.log(pointer);
+        hero.setVelocityY((pointer.upY - pointer.downY) * 5);
+        hero.setVelocityX((pointer.upX - pointer.downX) * 1);
     }, this);
+    // this.input.on('dragstart', function(pointer){
+    //     console.log(pointer);
+    //     hero.setVelocityY((pointer.y - hero.body.y) * 5);
+    //     hero.setVelocityX((pointer.x - hero.body.x) * 1);
+    // }, this);
 }
 
 let jumpCnt = 0;
 let jump = 0;
+let isJump = false;
 
 function updpate ()
 {
+    // if(this.click.isDown){
+    //     hero.setVelocityX((pointer.x - hero.body.x) * 3);
+    // }
+
     if(Phaser.Input.Keyboard.JustDown(this.spacebar) && jumpCnt < 1){
         hero.setVelocityY(-800);
         jumpCnt++;
