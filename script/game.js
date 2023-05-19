@@ -73,9 +73,10 @@ function create ()
 
     this.input.on('pointerup', function(pointer){
         //console.log(this.click.buttons==1 ? "click" : "no");
-        console.log(pointer);
-        hero.setVelocityY((pointer.upY - pointer.downY) * 5);
-        hero.setVelocityX((pointer.upX - pointer.downX) * 1);
+        var speed = (pointer.upTime - pointer.downTime)/100;
+        console.log(speed);
+        hero.setVelocityY(((pointer.upY - pointer.downY) * 5)/speed);
+        hero.setVelocityX(((pointer.upX - pointer.downX) * 1)/speed);
     }, this);
     // this.input.on('dragstart', function(pointer){
     //     console.log(pointer);
