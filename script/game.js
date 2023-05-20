@@ -41,6 +41,7 @@ function preload ()
 
 let hero;
 var x = 0;
+var reps = 0;
 
 function create ()
 {
@@ -68,6 +69,8 @@ function create ()
     //hero.setVelocity(50, 100);
     ball.setBounce(0.5, 0);
     ball.setCollideWorldBounds(true);
+
+    this.score = this.add.text(20, 20, 'reps: '+reps, { fontFamily: 'Arial',fontSize: '32px', fill: '#000' });
 
     //emitter.startFollow(ball);
 
@@ -103,6 +106,7 @@ function create ()
 let jumpCnt = 0;
 let jump = 0;
 let isJump = false;
+let check = false;
 
 function updpate ()
 {
@@ -121,11 +125,13 @@ function updpate ()
         ball.setVelocityX(+500);
     }
 
-    if(ball.body.blocked.down) {
+    if(ball.y==560) {
         jumpCnt = 0;
         jump = 0;
         ball.setVelocityX(ball.body.velocity.x * 0.8);
     }
+
+    if(ball.body.blocked.up) this.sound.play('noReps');
 
     if(ball.y <400) hero.setTexture('p3');
     else if(ball.y < 550) hero.setTexture('p2');
@@ -135,12 +141,17 @@ function updpate ()
         hero.setTexture('p1');
     }
 
-    if(ball.body.speed<20 ) {
+    if(ball.body.speed<20 && ball.y < 400) {
         if(ball.y > 50 && ball.y < 110 && ball.x > 160 && ball.x < 240){
             this.sound.play('reps');
+            reps++;
+            this.score.setText('reps: '+reps);
+            check = true;
         }else{
-            this.sound.play('noReps');
+            if(!check) this.sound.play('noReps');
+            check = true;
         }
+        check = false;
     }
 
     hero.x = ball.x;
