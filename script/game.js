@@ -37,15 +37,27 @@ function preload ()
 
     this.load.audio('reps', 'reps.mp3');
     this.load.audio('noReps', 'no reps.mp3');
+    this.load.audio('bgm', 'bgm.mp3');
+    this.load.audio('321', '321.mp3');
 }
 
 let hero;
 var x = 0;
 var reps = 0;
+var time = 60;
+let timer;
+let timerBoard;
+let startBoard;
+let bgm;
+let cnt;
+let end = false;
 
 function create ()
 {
     this.power=0;
+    this.sound.play('bgm',{volume:0.3,loop:true,seek:Math.floor(Math.random() * 350)});
+    cnt = this.sound.add('321');
+    bgm = this.sound.add('bgm');
 
     this.add.image(200, 400, 'bg');
     var particles = this.add.particles('red');
@@ -71,6 +83,14 @@ function create ()
     ball.setCollideWorldBounds(true);
 
     this.score = this.add.text(20, 20, 'reps: '+reps, { fontFamily: 'Arial',fontSize: '32px', fill: '#000' });
+    timerBoard = this.add.text(330, 20, time, { fontFamily: 'Arial',fontSize: '32px', fill: 'blue' });
+    startBoard = this.add.text(80, 300, 'click to start', { fontFamily: 'Arial',fontSize: '50px', fill: 'blue', backgroundColor: 'white' });
+    timer = this.time.addEvent({
+        delay: 1000,                // ms
+        callback: setTimer,
+        repeat: 60
+    });
+    timer.paused = true;
 
     //emitter.startFollow(ball);
 
@@ -91,10 +111,27 @@ function create ()
     this.input.on('pointerup', function(pointer){
         //console.log(this.click.buttons==1 ? "click" : "no");
         //var speed = (pointer.upTime - pointer.downTime)/100;
-        var speed = 1;
-        console.log(pointer);
-        ball.setVelocityY(((pointer.upY - pointer.downY) * 5)/speed);
-        ball.setVelocityX(((pointer.upX - pointer.downX) * 0.5)/speed);
+        startBoard.setText('');
+        timer.paused = false;
+        if(end){
+            end=false;
+            reps = 0;
+            time = 60;
+            timer.reset({
+                delay: 1000,                // ms
+                callback: setTimer,
+                repeat: 60
+            });
+            timer.paused = false;
+            this.score.setText('reps: '+reps);
+            timerBoard.setText(time);
+        }
+        if(ball.y == 560){
+            var speed = 1;
+            console.log(pointer);
+            ball.setVelocityY(((pointer.upY - pointer.downY) * 5)/speed);
+            ball.setVelocityX(((pointer.upX - pointer.downX) * 0.5)/speed);
+        }
     }, this);
     // this.input.on('dragstart', function(pointer){
     //     console.log(pointer);
@@ -125,11 +162,11 @@ function updpate ()
         ball.setVelocityX(+500);
     }
 
-    if(ball.y==560) {
-        jumpCnt = 0;
-        jump = 0;
-        ball.setVelocityX(ball.body.velocity.x * 0.8);
-    }
+    // if(ball.y==560) {
+    //     jumpCnt = 0;
+    //     jump = 0;
+    //     ball.setVelocityX(ball.body.velocity.x * 0.8);
+    // }
 
     if(ball.body.blocked.up) this.sound.play('noReps');
 
@@ -138,20 +175,21 @@ function updpate ()
     else {
         ball.y = 560;
         ball.body.velocity.y = 0;
+        ball.body.velocity.x = 0;
         hero.setTexture('p1');
+        check = false;
     }
 
-    if(ball.body.speed<20 && ball.y < 400) {
-        if(ball.y > 50 && ball.y < 110 && ball.x > 160 && ball.x < 240){
+    if(ball.body.speed<20 && ball.y < 400 && !check) {
+        if(ball.y > 30 && ball.y < 120 && ball.x > 160 && ball.x < 240){
             this.sound.play('reps');
             reps++;
             this.score.setText('reps: '+reps);
             check = true;
         }else{
-            if(!check) this.sound.play('noReps');
+            this.sound.play('noReps');
             check = true;
         }
-        check = false;
     }
 
     hero.x = ball.x;
@@ -159,4 +197,21 @@ function updpate ()
 
     //hero.setVelocityX(hero.body.velocity.x * 0.8);
     //console.log(hero.body.x);
+}
+
+function setTimer(){
+    time--;
+    //console.log(time);
+    timerBoard.setText(time);
+    if(time < 11) timerBoard.setFill('red');
+    if(time == 3){
+        cnt.play();
+        //this.scene.start('end', {reps: reps});
+    }
+    if(time == 0){
+        timer.paused = true;
+        startBoard.setPosition(50, 300);
+        startBoard.setText('score :'+ reps +'\nclick to restart');
+        end = true;
+    }
 }
