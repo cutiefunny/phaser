@@ -3,7 +3,7 @@ var config = {
     scale:{
         parent: "game",
         width: 400,
-        height: 600
+        height: 800
     },
     transparent: true,
     physics: {
@@ -28,6 +28,12 @@ function preload ()
     this.load.image('hero', 'tux.png');
     this.load.image('red', 'fire.png');
     this.load.image('sky', 'sky.jpg');
+
+    this.load.image('bg', 'bg.png');
+    this.load.image('p1', 'p1.png');
+    this.load.image('p2', 'p2.png');
+    this.load.image('p3', 'p3.png');
+    this.load.image('ball', 'ball.png');
 }
 
 let hero;
@@ -37,25 +43,30 @@ function create ()
 {
     this.power=0;
 
-    this.add.image(400, 300, 'sky');
+    this.add.image(200, 400, 'bg');
     var particles = this.add.particles('red');
 
-    var emitter = particles.createEmitter({
-        speed: 100,
-        scale: { start: 0.4, end: 0 },
-        alpha: { start: 0.4, end: 0 },
-        blendMode: 'NORMAL'
-    });
+    // var emitter = particles.createEmitter({
+    //     speed: 100,
+    //     scale: { start: 0.5, end: 0 },
+    //     alpha: { start: 0.5, end: 0 },
+    //     blendMode: 'NORMAL'
+    // });
+    
 
-    hero = this.physics.add.image(100, 500, 'hero');
-    hero.scaleX = 0.5;
-    hero.scaleY = 0.5;
+    ball = this.physics.add.image(200, 500, 'ball');
+    ball.scaleX = 1.5;
+    ball.scaleY = 1.5;
+
+    hero = this.add.image(200, 570, 'p1');
+    hero.scaleX = 1.5;
+    hero.scaleY = 1.5;
 
     //hero.setVelocity(50, 100);
-    hero.setBounce(0.5, 0);
-    hero.setCollideWorldBounds(true);
+    ball.setBounce(0.5, 0);
+    ball.setCollideWorldBounds(true);
 
-    emitter.startFollow(hero);
+    //emitter.startFollow(ball);
 
     this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
     this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
@@ -76,8 +87,8 @@ function create ()
         //var speed = (pointer.upTime - pointer.downTime)/100;
         var speed = 1;
         console.log(pointer);
-        hero.setVelocityY(((pointer.upY - pointer.downY) * 5)/speed);
-        hero.setVelocityX(((pointer.upX - pointer.downX) * 1)/speed);
+        ball.setVelocityY(((pointer.upY - pointer.downY) * 5)/speed);
+        ball.setVelocityX(((pointer.upX - pointer.downX) * 0.5)/speed);
     }, this);
     // this.input.on('dragstart', function(pointer){
     //     console.log(pointer);
@@ -97,21 +108,27 @@ function updpate ()
     // }
 
     if(Phaser.Input.Keyboard.JustDown(this.spacebar) && jumpCnt < 1){
-        hero.setVelocityY(-800);
+        ball.setVelocityY(-800);
         jumpCnt++;
-    }else if(this.keyA.isDown && hero.body.x > 15){
-        hero.setVelocityX(-500);
+    }else if(this.keyA.isDown && ball.body.x > 15){
+        ball.setVelocityX(-500);
     }else if(this.keyS.isDown){
-        hero.setVelocityX(0);
-    }else if(this.keyD.isDown && hero.body.x < 685){
-        hero.setVelocityX(+500);
+        ball.setVelocityX(0);
+    }else if(this.keyD.isDown && ball.body.x < 685){
+        ball.setVelocityX(+500);
     }
 
-    if(hero.body.blocked.down) {
+    if(ball.body.blocked.down) {
         jumpCnt = 0;
         jump = 0;
-        hero.setVelocityX(hero.body.velocity.x * 0.8);
+        ball.setVelocityX(ball.body.velocity.x * 0.8);
     }
+
+    if(ball.y <400) hero.setTexture('p3');
+    else if(ball.y < 550) hero.setTexture('p2');
+    else hero.setTexture('p1');
+
+    hero.x = ball.x;
     //else if(hero.body.velocity.x > 0) hero.setVelocityX(+500);
 
     //hero.setVelocityX(hero.body.velocity.x * 0.8);
