@@ -23,7 +23,7 @@ var game = new Phaser.Game(config);
 
 function preload ()
 {
-    this.load.setBaseURL('/image/');
+    this.load.setBaseURL('/resource/');
 
     this.load.image('hero', 'tux.png');
     this.load.image('red', 'fire.png');
@@ -34,6 +34,9 @@ function preload ()
     this.load.image('p2', 'p2.png');
     this.load.image('p3', 'p3.png');
     this.load.image('ball', 'ball.png');
+
+    this.load.audio('reps', 'reps.mp3');
+    this.load.audio('noReps', 'no reps.mp3');
 }
 
 let hero;
@@ -54,7 +57,7 @@ function create ()
     // });
     
 
-    ball = this.physics.add.image(200, 500, 'ball');
+    ball = this.physics.add.image(200, 560, 'ball');
     ball.scaleX = 1.5;
     ball.scaleY = 1.5;
 
@@ -126,7 +129,19 @@ function updpate ()
 
     if(ball.y <400) hero.setTexture('p3');
     else if(ball.y < 550) hero.setTexture('p2');
-    else hero.setTexture('p1');
+    else {
+        ball.y = 560;
+        ball.body.velocity.y = 0;
+        hero.setTexture('p1');
+    }
+
+    if(ball.body.speed<20 ) {
+        if(ball.y > 50 && ball.y < 110 && ball.x > 160 && ball.x < 240){
+            this.sound.play('reps');
+        }else{
+            this.sound.play('noReps');
+        }
+    }
 
     hero.x = ball.x;
     //else if(hero.body.velocity.x > 0) hero.setVelocityX(+500);

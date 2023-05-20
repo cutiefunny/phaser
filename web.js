@@ -7,7 +7,7 @@ app.set('view engine', 'pug');
 app.set('views', __dirname + '/views');
 app.use('/script',express.static(__dirname + "/script"));
 app.use('/views',express.static(__dirname + "/views"));
-app.use('/image',express.static(__dirname + "/image"));
+app.use('/resource',express.static(__dirname + "/resource"));
 
 app.get('/', (req, res) => {
     res.render('main', { title: 'phaser3 test'
