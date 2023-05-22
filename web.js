@@ -15,6 +15,12 @@ app.get('/', (req, res) => {
                 });
 });
 
+app.get('/adventure', (req, res) => {
+    res.render('adventure', { title: 'crossfit adventure'
+                    , data : 'data'                 
+                });
+});
+
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
