@@ -81,6 +81,20 @@ function updpate ()
     if(this.keyDownState!= "W" && this.keyW.isDown){
         hero.play('jump');
         this.keyDownState = "W";
+        //점프
+        hero.setVelocityY(-330);
+    }else if(this.keyDownState!= "A" && this.keyA.isDown){
+        //왼쪽으로 이동
+        hero.setVelocityX(-160);
+        this.keyDownState = "A";
+    }else if(this.keyDownState!= "S" && this.keyS.isDown){
+        //아래로 이동
+        hero.setVelocityY(160);
+        this.keyDownState = "S";
+    }else if(this.keyDownState!= "D" && this.keyD.isDown){
+        //오른쪽으로 이동
+        hero.setVelocityX(160);
+        this.keyDownState = "D";
     }else{
         hero.play('idle');
         this.keyDownState = "";
