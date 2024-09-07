@@ -9,12 +9,6 @@ app.use('/script',express.static(__dirname + "/script"));
 app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
 
-app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`)
-})
-
-module.exports = app;
-
 app.get('/', (req, res) => {
     res.render('main', { title: 'wallball shot'
                     , data : 'data'                 
