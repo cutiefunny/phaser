@@ -15,6 +15,12 @@ app.get('/', (req, res) => {
                 });
 });
 
+app.get('/wallball', (req, res) => {
+    res.render('wallball', { title: 'wallball shot'
+                    , data : 'data'                 
+                });
+});
+
 app.get('/adventure', (req, res) => {
     res.render('adventure', { title: 'crossfit adventure'
                     , data : 'data'                 
