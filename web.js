@@ -16,7 +16,7 @@ app.listen(port, () => {
 module.exports = app;
 
 app.get('/', (req, res) => {
-    res.render('main', { title: 'phaser3 test'
+    res.render('main', { title: 'wallball shot'
                     , data : 'data'                 
                 });
 });
