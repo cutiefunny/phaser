@@ -2,8 +2,8 @@ var config = {
     type: Phaser.AUTO,
     scale:{
         parent: "game2",
-        width: 800,
-        height: 600
+        width: 400,
+        height: 800
     },
     transparent: true,
     physics: {
@@ -30,6 +30,7 @@ function preload ()
 
     this.load.spritesheet('jump', "jump.png",{ frameWidth : 160, frameHeight : 254});
     this.load.spritesheet('idle', "idle.png",{ frameWidth : 258, frameHeight : 197});
+    this.load.spritesheet('down', "p_jump2.png",{ frameWidth : 258, frameHeight : 197});
 }
 
 function create ()
@@ -60,6 +61,13 @@ function create ()
         repeat: -1
     });
 
+    this.anims.create({
+        key: 'down',
+        frames: 'down',
+        frameRate: 10,
+        repeat: -1
+    });
+
     hero = this.physics.add.sprite(258, 197, 'idle');
 
     hero.setBounce(0.5, 0);
@@ -74,29 +82,45 @@ function create ()
     this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.spacebar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    // this.input.on('pointerdown', function (pointer) {
+    //     hero.setPosition(pointer.x, pointer.y);
+    // });
 }
 
 function updpate ()
 {
-    if(this.keyDownState!= "W" && this.keyW.isDown){
+    // if(this.keyDownState!= "W" && this.keyW.isDown){
+    //     hero.play('jump');
+    //     this.keyDownState = "W";
+    //     //점프
+    //     hero.setVelocityY(-330);
+    // }else if(this.keyDownState!= "A" && this.keyA.isDown){
+    //     //왼쪽으로 이동
+    //     hero.setVelocityX(-160);
+    //     this.keyDownState = "A";
+    // }else if(this.keyDownState!= "S" && this.keyS.isDown){
+    //     //아래로 이동
+    //     hero.setVelocityY(160);
+    //     this.keyDownState = "S";
+    // }else if(this.keyDownState!= "D" && this.keyD.isDown){
+    //     //오른쪽으로 이동
+    //     hero.setVelocityX(160);
+    //     this.keyDownState = "D";
+    // }else{
+    //     hero.play('idle');
+    //     this.keyDownState = "";
+    // }
+
+    if(this.input.activePointer.isDown) {
         hero.play('jump');
-        this.keyDownState = "W";
-        //점프
+        let pointer = this.input.activePointer;
+        let clickX = pointer.x;
+        let heroX = hero.x;
+        let moveX = clickX - heroX;
         hero.setVelocityY(-330);
-    }else if(this.keyDownState!= "A" && this.keyA.isDown){
-        //왼쪽으로 이동
-        hero.setVelocityX(-160);
-        this.keyDownState = "A";
-    }else if(this.keyDownState!= "S" && this.keyS.isDown){
-        //아래로 이동
-        hero.setVelocityY(160);
-        this.keyDownState = "S";
-    }else if(this.keyDownState!= "D" && this.keyD.isDown){
-        //오른쪽으로 이동
-        hero.setVelocityX(160);
-        this.keyDownState = "D";
+        hero.setVelocityX(moveX);
     }else{
         hero.play('idle');
-        this.keyDownState = "";
     }
 }
