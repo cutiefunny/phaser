@@ -21,6 +21,9 @@ var config = {
 
 var game = new Phaser.Game(config);
 var hero;
+let clickDue = 0;
+let statusBoard;
+let startBoard;
 
 function preload ()
 {
@@ -46,6 +49,8 @@ function create ()
     //     alpha: { start: 0.5, end: 0 },
     //     blendMode: 'NORMAL'
     // });
+
+    statusBoard = this.add.text(10, 10, 'Click to start', { font: '16px Courier', fill: '#00ff00' });
 
     this.anims.create({
         key: 'idle',
@@ -112,7 +117,7 @@ function updpate ()
     //     this.keyDownState = "";
     // }
 
-    if(this.input.activePointer.isDown) {
+    if(this.input.activePointer.isDown && clickDue < 10){
         hero.play('jump');
         let pointer = this.input.activePointer;
         let clickX = pointer.x;
@@ -120,7 +125,20 @@ function updpate ()
         let moveX = clickX - heroX;
         hero.setVelocityY(-330);
         hero.setVelocityX(moveX);
+        clickDue++;
+    }else if(this.input.activePointer.isDown && clickDue >= 10){
+        // hero.play('down');
+        // let pointer = this.input.activePointer;
+        // let clickX = pointer.x;
+        // let heroX = hero.x;
+        // let moveX = clickX - heroX;
+        // hero.setVelocityY(330);
+        // hero.setVelocityX(moveX);
+        // clickDue++;
     }else{
         hero.play('idle');
+        clickDue = 0;
     }
+
+    statusBoard.setText('clickDue: '+clickDue);
 }
