@@ -62,7 +62,7 @@ function create ()
     this.anims.create({
         key: 'jump',
         frames: 'jump',
-        frameRate: 10,
+        frameRate: 2,
         repeat: -1
     });
 
@@ -140,5 +140,10 @@ function updpate ()
         clickDue = 0;
     }
 
-    statusBoard.setText('clickDue: '+clickDue);
+    if(hero.y > 700){
+        hero.setVelocityX(0);
+        hero.play('idle');
+    }
+
+    statusBoard.setText('hero.y: '+hero.y);
 }
