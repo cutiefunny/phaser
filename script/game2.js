@@ -3,7 +3,7 @@ var config = {
     scale:{
         parent: "game2",
         width: 400,
-        height: 800
+        height: 700
     },
     transparent: true,
     physics: {
@@ -74,6 +74,8 @@ function create ()
     });
 
     hero = this.physics.add.sprite(258, 197, 'idle');
+    hero.scaleX = 0.5;
+    hero.scaleY = 0.5;
 
     hero.setBounce(0.5, 0);
     hero.setCollideWorldBounds(true);
@@ -140,9 +142,9 @@ function updpate ()
         clickDue = 0;
     }
 
-    if(hero.y > 700){
+    if(hero.y > 650){
         hero.setVelocityX(0);
-        hero.play('idle');
+        //hero.play('idle');
     }
 
     statusBoard.setText('hero.y: '+hero.y);
