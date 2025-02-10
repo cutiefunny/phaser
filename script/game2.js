@@ -119,7 +119,7 @@ function updpate ()
     //     this.keyDownState = "";
     // }
 
-    if(this.input.activePointer.isDown && clickDue < 10){
+    if(this.input.activePointer.isDown && clickDue < 15){
         hero.play('jump');
         let pointer = this.input.activePointer;
         let clickX = pointer.x;
@@ -128,7 +128,7 @@ function updpate ()
         hero.setVelocityY(-330);
         hero.setVelocityX(moveX);
         clickDue++;
-    }else if(this.input.activePointer.isDown && clickDue >= 10){
+    }else if(this.input.activePointer.isDown && clickDue >= 15){
         // hero.play('down');
         // let pointer = this.input.activePointer;
         // let clickX = pointer.x;
