@@ -49,6 +49,11 @@ function create ()
     //     alpha: { start: 0.5, end: 0 },
     //     blendMode: 'NORMAL'
     // });
+    platforms = this.physics.add.staticGroup();
+
+    platforms.create(100, 568, 'red');
+    platforms.create(300, 400, 'red');
+    platforms.create(50, 250, 'red');
 
     statusBoard = this.add.text(10, 10, 'Click to start', { font: '16px Courier', fill: '#00ff00' });
 
@@ -73,12 +78,13 @@ function create ()
         repeat: -1
     });
 
-    hero = this.physics.add.sprite(258, 197, 'idle');
-    hero.scaleX = 0.5;
-    hero.scaleY = 0.5;
+    hero = this.physics.add.sprite(258, 600, 'idle');
+    hero.scaleX = 0.3;
+    hero.scaleY = 0.3;
 
     hero.setBounce(0.5, 0);
     hero.setCollideWorldBounds(true);
+    this.physics.add.collider(hero, platforms);
 
     //hero.setVelocity(50, 100);
 
