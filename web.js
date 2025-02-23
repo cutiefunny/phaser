@@ -10,7 +10,7 @@ app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
 
 app.get('/', (req, res) => {
-    res.render('main', { title: 'wallball shot'
+    res.render('main', { title: 'main'
                     , data : 'data'                 
                 });
 });
