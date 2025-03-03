@@ -1,3 +1,7 @@
+window.onload = function() {
+
+};
+
 var config = {
     type: Phaser.AUTO,
     scale:{
@@ -48,6 +52,7 @@ var time = 60;
 let timer;
 let timerBoard;
 let startBoard;
+let saveBoard;
 let bgm;
 let cnt;
 let end = false;
@@ -55,7 +60,7 @@ let end = false;
 function create ()
 {
     this.power=0;
-    this.sound.play('bgm',{volume:0.3,loop:true,seek:Math.floor(Math.random() * 350)});
+    //this.sound.play('bgm',{volume:0.3,loop:true,seek:Math.floor(Math.random() * 350)});
     cnt = this.sound.add('321');
     bgm = this.sound.add('bgm');
 
@@ -85,6 +90,7 @@ function create ()
     this.score = this.add.text(20, 20, 'reps: '+reps, { fontFamily: 'Arial',fontSize: '32px', fill: '#000' });
     timerBoard = this.add.text(330, 20, time, { fontFamily: 'Arial',fontSize: '32px', fill: 'blue' });
     startBoard = this.add.text(80, 300, 'click to start', { fontFamily: 'Arial',fontSize: '50px', fill: 'blue', backgroundColor: 'white' });
+
     timer = this.time.addEvent({
         delay: 1000,                // ms
         callback: setTimer,
@@ -209,9 +215,23 @@ function setTimer(){
         //this.scene.start('end', {reps: reps});
     }
     if(time == 0){
+
         timer.paused = true;
-        startBoard.setPosition(50, 300);
-        startBoard.setText('score :'+ reps +'\nclick to restart');
-        end = true;
+
+        $('.ui.modal').modal('show');
+        $('#score').text(reps);
+        $("#modalCancel").show();
+        $('#modalOk').click(function(){
+            let score = reps;
+            let name = $('#player').val();
+
+            callFetchApi('POST', '/saveScore', JSON.stringify({game: "wallballshot", name: name, score: score}));
+
+            //$('.ui.modal').modal('hide');
+            startBoard.setPosition(50, 300);
+            startBoard.setText('score :'+ reps +'\nclick to restart');
+            end = true;
+        });
+        // end = true;
     }
 }

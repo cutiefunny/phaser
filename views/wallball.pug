@@ -10,6 +10,19 @@ html
         center
             #game(style="align-self: center;")
                 script(src="/script/game.js")
+            .ui.tiny.modal
+                .header#header SCORE : 
+                    span#score
+                .content#contents
+                    .ui.input(style="width: 100%;")
+                        input(type="text" id="player" placeholder="Enter your name")
+                .actions
+                    .ui.button#modalOk ok 
+                    .ui.button#modalCancel cancel
+            if local === "Y"
+                #local local
     script(src="//code.jquery.com/jquery-1.11.0.min.js")
     script(src="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.js")
+    script(src="/script/config.js")
+    script(src="/script/callApi.js")
     script(src="/script/main.js")
