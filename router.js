@@ -14,13 +14,8 @@ exports.main = async function (req,res){
 }
 
 exports.wallball = async function (req,res){
-
-    let scoreBoard = await CRUD.searchDataMysql("getScore");
-    console.log("scoreBoard : "+ JSON.stringify(scoreBoard));
-
     res.render('wallball', { title: 'wallball shot'         
                             ,local:local
-                            ,scoreBoard:scoreBoard
                 });
 }
 
