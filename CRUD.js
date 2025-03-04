@@ -1,7 +1,5 @@
 const moment = require('moment');
 const { MongoClient } = require("mongodb");
-//const mysql = require('mysql');
-const mysql = require('mysql2/promise');
 const fs = require('fs');
 const common = require('./common');
 
@@ -12,104 +10,6 @@ const uri =
 const client = new MongoClient(uri);
 client.connect();
 const db = client.db("game");
-
-// MySQL connection setup
-const connection = mysql.createConnection({
-    host: 'musclecron.cafe24app.com',
-    user: "musclecat2",
-    password: "ghks1015",
-    database: 'musclecat2',
-    port: 3306
-});
-
-//Read from mysql
-exports.searchDataMysql = async function (op,param){
-    let sql = "";
-    var res;
-    try{
-        if(op=="getScore"){
-            sql = "SELECT * FROM SCORE_BOARD ORDER BY SCORE DESC LIMIT 10;";
-        }
-
-        console.log("sql : "+sql);
-        let [rows,fields,err] = (await connection).query(sql);
-        console.log("rows : "+rows);
-        if(err) res = [];
-        else res = rows;
-        return res;
-    }catch(e){
-        console.log(e);
-        return res;
-    }
-}
-
-//insert to mysql
-exports.insertDataMysql = async function (op,param){
-    let sql = "";
-    try{
-        if(op=="saveScore"){
-            sql += "INSERT INTO SCORE_BOARD (GAME, PLAYER, SCORE, UPDT_DATE) VALUES('"+param.game+"', '"+param.name+"', IFNULL("+param.score+",0), NOW());";
-        };
-
-        console.log("sql : "+sql);
-        await connection.query(sql);
-        return true;
-    }catch(e){
-        console.log(e);
-        return false;
-    }
-}
-
-//Update from mysql
-exports.updateDataMysql = async function (op,param){
-
-    if(op=="bet"){
-        let sql = "UPDATE mem_cash SET cashAmt = '"+param.cash+"' WHERE memId = '"+param.user_id+"' AND siteId = 'inplay';";
-        logger.info(sql);
-        let [rows,fields,err] = await connection.query(sql);
-        if(err) res = false;
-        else res = true;
-    }
-
-    return res;
-}
-
-//delete from mysql
-exports.deleteDataMysql = async function (op,param){
-    const connection = await mysql.createConnection(conn);
-    connection.connect();
-
-    if(op=="deleteGame"){
-        let sql = "DELETE FROM sports_game WHERE uptDt < '"+moment().subtract(2,'days').format("YYYY-MM-DD")+"';";
-        //sql += "DELETE FROM sports_multi WHERE uptDt < '"+moment().subtract(2,'days').format("YYYY-MM-DD")+"';";
-        logger.info(sql);
-        let [rows,fields,err] = await connection.query(sql);
-        connection.end();
-        if(err) res = false;
-        else res = true;
-    }else if(op=="deleteMulti"){
-        let sql = "DELETE FROM sports_multi WHERE uptDt < '"+moment().subtract(2,'days').format("YYYY-MM-DD")+"';";
-        logger.info(sql);
-        let [rows,fields,err] = await connection.query(sql);
-        connection.end();
-        if(err) res = false;
-        else res = true;
-    }else if(op=="deleteStop"){
-        let sql = "DELETE FROM sports_multi WHERE gameIdx = '"+param.gameIdx+"' AND marketId = '"+param.marketId+"';";
-        let [rows,fields,err] = await connection.query(sql);
-        connection.end();
-        if(err) res = false;
-        else res = true;
-    }else if(op=="deleteStop2"){
-        let sql = "DELETE FROM sports_multi WHERE gameIdx = '"+param.gameIdx+"' AND marketId = '"+param.marketId+"' AND listName = '"+param.listName+"';";
-        let [rows,fields,err] = await connection.query(sql);
-        connection.end();
-        if(err) res = false;
-        else res = true;
-    }
-
-    return res;
-}
 
 //Create
 exports.insertData = async function (col,param){
