@@ -29,7 +29,7 @@ function callFetchApi(method, url, data) {
             $("#modalClose").show();
             $("#modalClose").click(function(){
                 $('.ui.modal').modal('hide');
-                location.href = "/";
+                location.reload();
             });
             $('.ui.modal').modal('show');
             //location.href = json.url
