@@ -18,15 +18,18 @@ function callFetchApi(method, url, data) {
             let list = json.result;
             console.log("list : "+JSON.stringify(list));
             $("#contents").empty();
-            $("#contents").append("<table>");
-            $("#contents").append("<tr><th>순위</th><th>이름</th><th>점수</th></tr>");
+            $("#contents").append("<table class='ui celled table' style='text-align:center; margin:0'>");
+            $("#contents").append("<thead><tr><th>순위</th><th>이름</th><th>점수</th></tr></thead><tbody>");
             for(var i=0; i<list.length; i++){
                 $("#contents").append("<tr><td>"+(i+1)+"</td><td>"+list[i].name+"</td><td>"+list[i].score+"</td></tr>");
             }
-            $("#contents").append("</table>");
+            $("#contents").append("</tbody></table>");
             $('#modalCancel').hide();
-            $("#modalOk").click(function(){
+            $("#modalOk").hide();
+            $("#modalClose").show();
+            $("#modalClose").click(function(){
                 $('.ui.modal').modal('hide');
+                location.href = "/";
             });
             $('.ui.modal').modal('show');
             //location.href = json.url

@@ -221,6 +221,7 @@ function setTimer(){
         $('.ui.modal').modal('show');
         $('#score').text(reps);
         $("#modalCancel").show();
+        $("#modalOk").show();
         $('#modalOk').click(function(){
             let score = reps;
             let name = $('#player').val();
