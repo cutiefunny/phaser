@@ -29,7 +29,7 @@ function preload ()
 {
     this.load.setBaseURL('/resource/adventure/');
     this.load.image('bg', 'sky.jpg');
-    this.load.image('red', 'fire.png');
+    this.load.image('ground', 'ground.png');
 
     this.load.spritesheet('jump', "jump.png",{ frameWidth : 160, frameHeight : 254});
     this.load.spritesheet('idle', "idle.png",{ frameWidth : 258, frameHeight : 197});
@@ -51,9 +51,9 @@ function create ()
     // });
     platforms = this.physics.add.staticGroup();
 
-    platforms.create(100, 568, 'red');
-    platforms.create(300, 400, 'red');
-    platforms.create(50, 250, 'red');
+    platforms.create(100, 568, 'ground');
+    platforms.create(300, 400, 'ground');
+    platforms.create(50, 250, 'ground');
 
     statusBoard = this.add.text(10, 10, 'Click to start', { font: '16px Courier', fill: '#00ff00' });
 
@@ -146,6 +146,10 @@ function updpate ()
     }else{
         hero.play('idle');
         clickDue = 0;
+    }
+
+    if (hero.body.touching.down) {
+        hero.setVelocityX(0);
     }
 
     if(hero.y > 650){
