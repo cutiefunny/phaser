@@ -221,12 +221,11 @@ function setTimer(){
         $('#saveScore').modal('show');
         $('#score').text(reps);
         $('#modalOk').click(function(){
+            $('#saveScore').modal('hide');
             let score = reps;
             let name = $('#player').val();
 
             callFetchApi('POST', '/saveScore', JSON.stringify({game: "wallballshot", name: name, score: score}));
-
-            $('#saveScore').modal('hide');
             startBoard.setPosition(50, 300);
             startBoard.setText('score :'+ reps +'\nclick to restart');
             end = true;

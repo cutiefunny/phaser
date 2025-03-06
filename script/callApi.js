@@ -15,6 +15,12 @@ function callFetchApi(method, url, data) {
             location.href = json.url;
         }else if(json.op == "saveScore"){
             $('#scoreBoard').modal('show');
+            $('#scoreList').empty();
+            let rank = 0;
+            json.result.forEach(function(item) {
+                rank++;
+                $('#scoreList').append('<tr><td>'+rank+'</td><td>'+item.name+'</td><td>'+item.score+'</td><td>');
+            });
         }
     });
 }
