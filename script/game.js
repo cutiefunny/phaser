@@ -218,17 +218,15 @@ function setTimer(){
 
         timer.paused = true;
 
-        $('.ui.modal').modal('show');
+        $('#saveScore').modal('show');
         $('#score').text(reps);
-        $("#modalCancel").show();
-        $("#modalOk").show();
         $('#modalOk').click(function(){
             let score = reps;
             let name = $('#player').val();
 
             callFetchApi('POST', '/saveScore', JSON.stringify({game: "wallballshot", name: name, score: score}));
 
-            //$('.ui.modal').modal('hide');
+            $('#saveScore').modal('hide');
             startBoard.setPosition(50, 300);
             startBoard.setText('score :'+ reps +'\nclick to restart');
             end = true;

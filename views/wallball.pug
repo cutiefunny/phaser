@@ -5,12 +5,12 @@ html
         meta(name="viewport", content="width=device-width, initial-scale=1.0")
         link(rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.css")
         script(src="https://cdn.jsdelivr.net/npm/phaser@3.15.1/dist/phaser-arcade-physics.min.js")
-        //-link(rel='stylesheet', href='/views/css/main.css')
+        link(rel='stylesheet', href='/views/css/main.css')
     body
         center
             #game(style="align-self: center;")
                 script(src="/script/game.js")
-            .ui.tiny.modal
+            .ui.tiny.modal#saveScore
                 .header#header SCORE : 
                     span#score
                 .content#contents
@@ -18,12 +18,28 @@ html
                         input(type="text" id="player" placeholder="Enter your name")
                 .actions
                     .ui.button#modalOk ok 
-                    .ui.button#modalClose(style="display: none;") close
                     .ui.button#modalCancel cancel
+            .ui.tiny.modal#scoreBoard
+                .header SCORE BOARD (last 1month)
+                table.w100p.center
+                    thead(style="background-color: #f2f2f2;")
+                        tr
+                            th.w20p Rank
+                            th.w60p Name
+                            th.w20p Score
+                    tbody
+                        - let rank = 0
+                        each score in scoreList
+                            tr
+                                td= ++rank
+                                td= score.name
+                                td= score.score
+                .actions
+                    .ui.button#modalClose close
             if local === "Y"
                 #local local
     script(src="//code.jquery.com/jquery-1.11.0.min.js")
     script(src="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.js")
     script(src="/script/config.js")
     script(src="/script/callApi.js")
-    script(src="/script/main.js")
+    script(src="/script/common.js")

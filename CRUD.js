@@ -26,7 +26,9 @@ exports.searchData = async function (op,col,param){
     var res;
 
     if(op=="getScore"){
-        res = await collection.find().sort({ score: -1 }).toArray();
+        const oneWeekAgo = moment().subtract(7, 'days').toDate();
+        const oneMonthAgo = moment().subtract(1, 'month').format('YYYY-MM-DD');
+        res = await collection.find({ createTm: { $gte: oneMonthAgo } }).sort({ score: -1 }).limit(10).toArray();
     }
     
     return res;
