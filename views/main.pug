@@ -1,12 +1,14 @@
 html 
     head 
-        title= title 
+        title 근육고양이잡화점
         meta(charset="UTF-8")
         meta(name="viewport", content="width=device-width, initial-scale=1.0")
         link(rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.css")
         link(rel='stylesheet', href='/views/css/main.css')
     body
         center
+            P 
+            img.w400#title(src="/images/1.png" alt="title" onclick="getTitle()")
             P
             .ui.button(onclick="location.href='/wallball'") wallball shot
             .ui.button(onclick="location.href='/adventure'") jump

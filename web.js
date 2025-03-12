@@ -12,6 +12,7 @@ app.set('views', __dirname + '/views');
 app.use('/script',express.static(__dirname + "/script"));
 app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
+app.use('/images',express.static(__dirname + "/images"));
 app.use(express.json());
 
 app.get('/', router.main);

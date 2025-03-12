@@ -8,9 +8,7 @@ let local = "N";
 if(common.getServerIp() == "58.140.59.218") local = "Y";
 
 exports.main = async function (req,res){
-
     let scoreList = await CRUD.searchData("getScore","wallballshot");
-    console.log("scoreList : "+JSON.stringify(scoreList));
 
     res.render('main', { title: 'main'         
                         ,local:local
@@ -21,7 +19,6 @@ exports.main = async function (req,res){
 exports.wallball = async function (req,res){
 
     let scoreList = await CRUD.searchData("getScore","wallballshot");
-    console.log("scoreList : "+JSON.stringify(scoreList));
 
     res.render('wallball', { title: 'wallball shot'         
                             ,local:local
