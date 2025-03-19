@@ -6,6 +6,7 @@ const router = require('./router');
 const CRUD= require("./CRUD");
 const API= require("./API");
 const common = require('./common');
+const cron = require('node-cron');
 
 app.set('view engine', 'pug');
 app.set('views', __dirname + '/views');
@@ -23,4 +24,8 @@ app.post('/saveScore', API.saveScore);
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
+});
+
+cron.schedule('* * * * *', async () => {
+    await API.getSearchMusclecat();
 });
