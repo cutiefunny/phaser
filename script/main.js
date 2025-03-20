@@ -8,6 +8,7 @@ window.onload = function(){
     //$("#machineId").text(localStorage.getItem('machineId'));
     //카카오톡 인앱 브라우저일 경우 외부 브라우저로 이동
     if(navigator.userAgent.match(/kakaotalk/i)){
+        var target_url = location.href;
         location.href = 'kakaotalk://web/openExternal?url='+encodeURIComponent(target_url);
     }
 };
