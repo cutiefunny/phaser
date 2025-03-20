@@ -6,6 +6,10 @@ window.onload = function(){
         localStorage.setItem('machineId', machineId);
     }
     //$("#machineId").text(localStorage.getItem('machineId'));
+    //카카오톡 인앱 브라우저일 경우 외부 브라우저로 이동
+    if(navigator.userAgent.match(/kakaotalk/i)){
+        location.href = 'kakaotalk://web/openExternal?url='+encodeURIComponent(target_url);
+    }
 };
 
 //#region pwa 관련
