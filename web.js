@@ -14,6 +14,8 @@ app.use('/script',express.static(__dirname + "/script"));
 app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
 app.use('/images',express.static(__dirname + "/images"));
+app.use('/manifest.json',express.static(__dirname + "/manifest.json"));
+app.use('/service-worker.js',express.static(__dirname + "/service-worker.js"));
 app.use(express.json());
 
 app.get('/', router.main);
@@ -26,6 +28,6 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-cron.schedule('* * * * *', async () => {
+cron.schedule('0 * * * *', async () => {
     await API.getSearchMusclecat();
 });
