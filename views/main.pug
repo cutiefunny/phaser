@@ -14,7 +14,7 @@ html
             .ui.button(onclick="location.href='/wallball'") wallball shot
             .ui.button(onclick="location.href='/adventure'") jump
             .ui.button(onclick="showScoreBoard()") score
-            .ui.button#installButton(onclick="installApp()") app 
+            .ui.button#installButton(onclick="installApp()" style="display:none;") app
                 i.icon.download(style="margin-left : 5px;")
         if local === "Y"
             #local local

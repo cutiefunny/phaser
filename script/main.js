@@ -32,8 +32,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 function showInstallPromotion() {
     // Display your custom install prompt
     const installButton = document.getElementById('installButton');
-    //installButton.style.display = 'block';
-    $('#install').modal('show');
+    installButton.style.display = 'block';
 }
 
 function installApp(){
