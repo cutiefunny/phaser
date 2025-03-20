@@ -32,7 +32,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 function showInstallPromotion() {
     // Display your custom install prompt
     const installButton = document.getElementById('installButton');
-    installButton.style.display = 'block';
+    installButton.style.display = 'inline';
 }
 
 function installApp(){
