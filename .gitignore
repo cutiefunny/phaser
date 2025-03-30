@@ -1,0 +1,5 @@
+/logs
+/script/config.js
+
+*.log
+*.gz
