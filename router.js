@@ -3,14 +3,21 @@ const moment = require('moment');
 require('dotenv').config();
 const axios = require('axios');
 const common = require('./common');
+const e = require("express");
 
 let local = "N";
 if(common.getServerIp() == "58.140.59.218") local = "Y";
 
 exports.main = async function (req,res){
+    res.render('main', { title: 'main'         
+                        ,local:local
+                });
+}
+
+exports.main2 = async function (req,res){
     let scoreList = await CRUD.searchData("getScore","wallballshot");
 
-    res.render('main', { title: 'main'         
+    res.render('main2', { title: 'main2'         
                         ,local:local
                         ,scoreList:scoreList
                 });
@@ -29,5 +36,13 @@ exports.wallball = async function (req,res){
 exports.adventure = async function (req,res){
     res.render('adventure', { title: 'crossfit adventure'       
                              ,local:local  
+                });
+}
+
+exports.seoulData = async function (req,res){
+    let seoulData = await CRUD.searchDataMysql("getAllData");
+    res.render('seoulData', { title: 'seoulData' 
+                             ,local:local
+                             ,seoulData:seoulData
                 });
 }

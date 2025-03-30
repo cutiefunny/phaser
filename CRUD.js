@@ -1,7 +1,10 @@
 const moment = require('moment');
 const { MongoClient } = require("mongodb");
+const mysql = require('mysql');
+const mysql2 = require('mysql2/promise');
 const fs = require('fs');
 const common = require('./common');
+const logger = require('./logger');
 
 //몽고DB 연결
 const uri =
@@ -10,6 +13,28 @@ const uri =
 const client = new MongoClient(uri);
 client.connect();
 const db = client.db("game");
+
+// MySQL connection setup
+const connection = mysql2.createConnection({
+    host: 'musclecron.cafe24app.com',
+    user: "musclecat2",
+    password: "ghks1015",
+    database: 'musclecat2',
+    port: 3306
+});
+
+//Read from mysql
+exports.searchDataMysql = async function (op,param){
+
+    let res = null;
+    if(op=="getAllData"){
+        let sql = "SELECT * FROM SEOUL_DATA";
+        let rows = await (await connection).execute(sql);
+        logger.info("rows : ",rows[0]);
+        res = rows[0];
+    }
+    return res;
+}
 
 //Create
 exports.insertData = async function (col,param){

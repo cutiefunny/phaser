@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": false,
+        "amount": 30
+    },
+    "auditLog": "C:\\project\\phaser\\logs\\.66e2279086e11eed3f210215b237fbfccbf57d94-audit.json",
+    "files": [
+        {
+            "date": 1743340414916,
+            "name": "C:\\project\\phaser\\logs\\2025-03-30.log",
+            "hash": "dd53f6b56fa3bc1e6221542b399db26300dc8dfd4697193926eeaa449dc3e879"
+        }
+    ],
+    "hashType": "sha256"
+}

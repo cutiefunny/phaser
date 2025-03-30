@@ -19,8 +19,10 @@ app.use('/service-worker.js',express.static(__dirname + "/service-worker.js"));
 app.use(express.json());
 
 app.get('/', router.main);
+app.get('/main', router.main2);
 app.get('/wallball', router.wallball);
 app.get('/adventure', router.adventure);
+app.get('/seoulData', router.seoulData);
 
 app.post('/saveScore', API.saveScore);
 

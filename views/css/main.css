@@ -15,4 +15,7 @@
 .w400 { width: 400px; }
 .w500 { width: 500px; }
 
+.margin-left { margin-left: 10px; }
+
+.left { text-align: left; }
 .center { text-align: center; }

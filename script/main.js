@@ -1,6 +1,6 @@
 //페이지 시작 시 수행되는 함수
 window.onload = function(){
-    //machineId가 없으면 생성
+    // machineId가 없으면 생성
     if (!localStorage.getItem('machineId')) {
         let machineId = Math.random().toString(36).substr(2, 8);
         localStorage.setItem('machineId', machineId);
@@ -10,6 +10,12 @@ window.onload = function(){
     if(navigator.userAgent.match(/kakaotalk/i)){
         var target_url = location.href;
         location.href = 'kakaotalk://web/openExternal?url='+encodeURIComponent(target_url);
+    }
+
+    try{
+        installApp();
+    }catch(e){
+        location.href = "/main";
     }
 };
 

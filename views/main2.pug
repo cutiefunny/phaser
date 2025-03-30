@@ -1,0 +1,39 @@
+html 
+    head 
+        title 근육고양이잡화점
+        meta(charset="UTF-8")
+        meta(name="viewport", content="width=device-width, initial-scale=1.0")
+        link(rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.css")
+        link(rel='stylesheet', href='/views/css/main.css')
+    body
+        center
+            P 
+            img.w400#title(src="/images/1.png" alt="title" onclick="getTitle()")
+            P
+            .ui.button(onclick="location.href='/wallball'") wallball shot
+            .ui.button(onclick="location.href='/adventure'") jump
+            .ui.button(onclick="showScoreBoard()") score
+            .ui.button(onclick="location.href='/seoulData'") seoulData
+        if local === "Y"
+            #local local
+        .ui.tiny.modal#scoreBoard
+            .header SCORE BOARD (last 1month)
+            table.w100p.center
+                thead(style="background-color: #f2f2f2;")
+                    tr
+                        th.w20p Rank
+                        th.w60p Name
+                        th.w20p Score
+                tbody
+                    - let rank = 0
+                    each score in scoreList
+                        tr
+                            td= ++rank
+                            td= score.name
+                            td= score.score
+            .actions
+                .ui.button#modalClose close
+    script(src="//code.jquery.com/jquery-1.11.0.min.js")
+    script(src="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.js")
+    script(src="/script/main2.js")
+    script(src="/script/common.js")
