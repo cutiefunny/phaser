@@ -25,15 +25,19 @@ const connection = mysql2.createConnection({
 
 //Read from mysql
 exports.searchDataMysql = async function (op,param){
-
-    let res = null;
-    if(op=="getAllData"){
-        let sql = "SELECT * FROM SEOUL_DATA";
-        let rows = await (await connection).execute(sql);
-        logger.info("rows : ",rows[0]);
-        res = rows[0];
+    try{
+        let res = null;
+        if(op=="getAllData"){
+            let sql = "SELECT * FROM SEOUL_DATA";
+            let rows = await (await connection).execute(sql);
+            logger.info("rows : ",rows[0]);
+            res = rows[0];
+        }
+        return res;
+    }catch(err){
+        logger.error("mysql error : ",err);
+        return err;
     }
-    return res;
 }
 
 //Create
