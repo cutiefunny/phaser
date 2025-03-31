@@ -6,7 +6,7 @@ const common = require('./common');
 const e = require("express");
 
 let local = "N";
-if(common.getServerIp() == "58.140.59.218") local = "Y";
+if(common.getServerIp() != "210.114.17.65") local = "Y";
 
 exports.main = async function (req,res){
     res.render('main', { title: 'main'         
