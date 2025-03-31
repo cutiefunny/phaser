@@ -16,9 +16,11 @@ exports.main = async function (req,res){
 
 exports.main2 = async function (req,res){
     let scoreList = await CRUD.searchData("getScore","wallballshot");
+    let ip = common.getServerIp();
 
     res.render('main2', { title: 'main2'         
                         ,local:local
+                        ,ip:ip
                         ,scoreList:scoreList
                 });
 }
