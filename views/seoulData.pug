@@ -21,7 +21,7 @@ html
             .ui.input 
                 input(type="text" id="search" placeholder="어떤 정보를 찾고 계신가요?" style="width: 300px;")
                 button.ui.button#searchBtn(onclick="search()") 검색
-            #resultText
+            #resultText.top10
             each info in result
                 .ui.message
                     .header #{info.AREA_NM}
