@@ -12,11 +12,11 @@ window.onload = function(){
         location.href = 'kakaotalk://web/openExternal?url='+encodeURIComponent(target_url);
     }
 
-    try{
-        installApp();
-    }catch(e){
-        location.href = "/main";
-    }
+    // try{
+    //     installApp();
+    // }catch(e){
+    //     location.href = "/main";
+    // }
 };
 
 //#region pwa 관련

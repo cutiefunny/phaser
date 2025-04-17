@@ -5,6 +5,8 @@ require('dotenv').config();
 const cheerio = require('cheerio');
 const axios = require('axios');
 const common = require('./common');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI = new GoogleGenerativeAI("AIzaSyASJx4A2dk0LIt_8U_aeJfCKGLMqmrtjZg");
 
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
@@ -47,4 +49,23 @@ exports.saveScore = async function (req,res){
     let result = await CRUD.searchData("getScore","wallballshot");
     console.log("result : "+JSON.stringify(result));
     res.send({op:"saveScore",result:result});
+}
+
+//제미나이 서치
+exports.search = async function(req,res) {
+    try{
+        let prompt = req.body.prompt;
+        let data = req.body.data;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
+        prompt = `data : ${data}\n\n${prompt}+간단하게`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        console.log(text);
+        res.send({result:"success",op:"search",message:text});
+    }catch(e){
+        res.send({result:"fail",message:e.message});
+    }
 }

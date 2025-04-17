@@ -1,19 +1,70 @@
 html 
     head 
-        title 근육고양이잡화점
+        title= title 
         meta(charset="UTF-8")
         meta(name="viewport", content="width=device-width, initial-scale=1.0")
-        link(rel="manifest" href="/manifest.json")
         link(rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.css")
         link(rel='stylesheet', href='/views/css/main.css')
     body
         center
-            if seoulData === undefined
-                P No data
-            else
-                each data in seoulData
-                    P= data.AREA_NAME
+            P
+            H3 실시간 서울 인구
+                //- a.ui.button.mini(style="float:left; margin-left: 20px;" href="/") 3대 번화가
+                select(style="margin-left: 20px;" id="select" onchange="setRef(this.value)")
+                    option(value="pop") 인구순
+                    option(value="male") 남성비율순
+                    option(value="female") 여성비율순
+                    option(value="20") 20대비율순
+                    option(value="30") 30대비율순
+                    option(value="40") 40대비율순
+                    option(value="nonresnt") 외부유입순
+            .ui.input 
+                input(type="text" id="search" placeholder="어떤 정보를 찾고 계신가요?" style="width: 300px;")
+                button.ui.button#searchBtn(onclick="search()") 검색
+            #resultText
+            each info in result
+                .ui.message
+                    .header #{info.AREA_NM}
+                    p= info.AREA_PPLTN_MIN + " ~ " + info.AREA_PPLTN_MAX + "명 / " + info.AREA_CONGEST_LVL
+                    table(style="width:360px")
+                        tr
+                            td(style="width: " + info.MALE_PPLTN_RATE + "%; background-color:rgb(60, 123, 194)")
+                                i.ui.icon.male(style="color:white;") 
+                                span(style="color:white;") #{info.MALE_PPLTN_RATE}%
+                            td(style="width: " + info.FEMALE_PPLTN_RATE + "%; background-color:rgb(219, 124, 238)")
+                                i.ui.icon.female(style="color:white")
+                                span(style="color:white;") #{info.FEMALE_PPLTN_RATE}%
+                    table(style="width:360px")
+                        tr
+                            td(style="width: " + info.PPLTN_RATE_20 + "%; background-color:rgb(115, 212, 140)")
+                                if info.PPLTN_RATE_20 > 17
+                                    span(style="color:white; font-size: 11px") 20대 
+                                span(style="color:white; font-size: 14px") #{info.PPLTN_RATE_20}%
+                            td(style="width: " + info.PPLTN_RATE_30 + "%; background-color:rgb(44, 133, 44)")
+                                if info.PPLTN_RATE_30 > 17
+                                    span(style="color:white; font-size: 11px") 30대 
+                                span(style="color:white; font-size: 14px") #{info.PPLTN_RATE_30}%
+                            td(style="width: " + info.PPLTN_RATE_40 + "%; background-color:rgb(13, 78, 18)")
+                                if info.PPLTN_RATE_40 > 17
+                                    span(style="color:white; font-size: 11px") 40대 
+                                span(style="color:white; font-size: 14px") #{info.PPLTN_RATE_40}%
+                    P
+            .hide#allData= allData
+            if local === "Y"
+                #local local
+        //- modal popup
+        .ui.basic.modal
+            .header
+                #header
+            .content
+                #contents
+            .actions
+                .ui.green.ok.inverted.button#confirm 
+                    i.checkmark.icon
+                .ui.red.cancel.inverted.button#cancel 
+                    i.remove.icon
     script(src="//code.jquery.com/jquery-1.11.0.min.js")
     script(src="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.js")
-    script(src="/script/main2.js")
-    script(src="/script/common.js")
+    script(src="/script/config.js")
+    script(src="/script/seoulData.js")
+    script(src="/script/callApi.js")

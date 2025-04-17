@@ -19,3 +19,13 @@
 
 .left { text-align: left; }
 .center { text-align: center; }
+
+.bold { font-weight: bold; }
+  
+.big{
+font-weight: bold;
+font-size: large;
+}
+
+.hide { display:none;}
+

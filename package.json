@@ -9,11 +9,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.24.0",
     "axios": "^1.8.1",
     "body-parser": "^1.20.3",
     "cheerio": "^1.0.0",
     "envdot": "^0.0.3",
     "express": "^4.18.2",
+    "express-session": "^1.18.1",
+    "mobile-detect": "^1.4.5",
     "moment": "^2.30.1",
     "mongodb": "^5.9.2",
     "mysql": "^2.18.1",
@@ -23,14 +26,12 @@
     "path": "^0.12.7",
     "phaser": "^3.60.0",
     "pug": "^3.0.2",
-    "request": "^2.88.2",
     "qrcode": "^1.5.4",
     "redis": "^4.7.0",
+    "request": "^2.88.2",
     "request-ip": "^3.3.0",
     "sharp": "^0.33.5",
     "winston": "^3.17.0",
-    "winston-daily-rotate-file": "^5.0.0",
-    "express-session": "^1.18.1",
-    "mobile-detect": "^1.4.5"
+    "winston-daily-rotate-file": "^5.0.0"
   }
 }

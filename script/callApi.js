@@ -21,6 +21,8 @@ function callFetchApi(method, url, data) {
                 rank++;
                 $('#scoreList').append('<tr><td>'+rank+'</td><td>'+item.name+'</td><td>'+item.score+'</td><td>');
             });
+        }else if(json.op == "search"){
+            $("#resultText").text(json.message);
         }
     });
 }

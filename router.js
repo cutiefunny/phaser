@@ -42,9 +42,42 @@ exports.adventure = async function (req,res){
 }
 
 exports.seoulData = async function (req,res){
-    let seoulData = await CRUD.searchDataMysql("getAllData");
-    res.render('seoulData', { title: 'seoulData' 
-                             ,local:local
-                             ,seoulData:seoulData
-                });
+    //let seoulData = await CRUD.searchDataMysql("getAllData");
+    let label = "[전체조회]";
+    let ref = req.query.ref;
+    let baseUrl = "http://openapi.seoul.go.kr:8088/716b4b676e637574393056636d6650/json/citydata_ppltn/1/23/POI"
+    let result = [];
+    let allData = [];
+    let local = "N";
+    if(common.getServerIp() == "192.168.0.14") local = "Y";
+
+    for(var i=1;i<117;i++){
+        let url = baseUrl + i.toString().padStart(3,"0");
+        try{
+            let info = await axios.get(url).then(response => response.data["SeoulRtd.citydata_ppltn"][0]);
+            delete info.FCST_PPLTN;
+            result.push(info);
+        }catch(e){
+            console.log({label:label,message:e});
+        }
+    }
+
+    allData = result;
+    if(ref=="male") result.sort((a, b) => b.MALE_PPLTN_RATE - a.MALE_PPLTN_RATE); //남성 비율 내림차순 정렬
+    else if(ref=="female") result.sort((a, b) => b.FEMALE_PPLTN_RATE - a.FEMALE_PPLTN_RATE); //여성 비율 내림차순 정렬
+    else if(ref=="nonresnt") result.sort((a, b) => b.NON_RESNT_PPLTN_RATE - a.NON_RESNT_PPLTN_RATE); //비거주인구 내림차순 정렬
+    else if(ref=="20") result.sort((a, b) => b.PPLTN_RATE_20 - a.PPLTN_RATE_20); //20대 비율 내림차순 정렬
+    else if(ref=="30") result.sort((a, b) => b.PPLTN_RATE_30 - a.PPLTN_RATE_30); //30대 비율 내림차순 정렬
+    else if(ref=="40") result.sort((a, b) => b.PPLTN_RATE_40 - a.PPLTN_RATE_40); //40대 비율 내림차순 정렬
+    else result.sort((a, b) => b.AREA_PPLTN_MAX - a.AREA_PPLTN_MAX); //최대인원 내림차순 정렬
+
+    result = result.slice(0, 10);
+
+    console.log({label:label,message:"result/"+ref+" : " + common.jsonEnter(JSON.stringify(result))});
+
+    res.render('seoulData', { title: '서울 데이터'
+        , local : local
+        , result : result
+        , allData : JSON.stringify(allData)
+    });   
 }
