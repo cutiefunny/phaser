@@ -11,7 +11,8 @@ function setRef(ref){
   location.href = baseUrl + "/seoulData?ref=" + ref;
 }
 
-function search(){
+function search(comp){
+  comp.classList.add("loading");
   let prompt = document.getElementById("search").value;
   let data = document.getElementById("allData").innerText;
   callFetchApi("POST", baseUrl + "/search", JSON.stringify({prompt:prompt,data:data}));

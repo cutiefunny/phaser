@@ -73,7 +73,7 @@ exports.seoulData = async function (req,res){
 
     result = result.slice(0, 10);
 
-    console.log({label:label,message:"result/"+ref+" : " + common.jsonEnter(JSON.stringify(result))});
+    //console.log({label:label,message:"result/"+ref+" : " + common.jsonEnter(JSON.stringify(result))});
 
     res.render('seoulData', { title: '서울 데이터'
         , local : local

@@ -24,6 +24,8 @@ function callFetchApi(method, url, data) {
         }else if(json.op == "search"){
             $("#resultText").text(json.message);
         }
+
+        $(".loading").removeClass("loading");
     });
 }
 

@@ -58,12 +58,23 @@ exports.search = async function(req,res) {
         let data = req.body.data;
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
-        prompt = `data : ${data}\n\n${prompt}+간단하게`;
+        // let addPrompt = '';
+        // const detectedLanguage = common.detectLanguage(data);
+        // if (detectedLanguage === 'ko') {
+        //     addPrompt = '이 데이터는 한국어로 작성되었습니다.';
+        // } else if (detectedLanguage === 'en') {
+        //     addPrompt = 'This data is written in English.';
+        // } else {
+        //     addPrompt = `The data is written in ${detectedLanguage}.`;
+        // }
+        // prompt = `${addPrompt}\n\n${prompt}`;
+        prompt = `data : ${data}\n\n${prompt}+simply under 100 text.\n\n`;
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
-        const text = response.text();
-        console.log(text);
+        var text = response.text();
+        text = text.replace(/\:\*\*/g, ']').replace(/\*\*/g, '[').replace(/\*/g, '\n');
+        text = text.replace(/\([^)]*\)/g, '');
         res.send({result:"success",op:"search",message:text});
     }catch(e){
         res.send({result:"fail",message:e.message});

@@ -20,8 +20,8 @@ html
                     option(value="nonresnt") 외부유입순
             .ui.input 
                 input(type="text" id="search" placeholder="어떤 정보를 찾고 계신가요?" style="width: 300px;")
-                button.ui.button#searchBtn(onclick="search()") 검색
-            #resultText.top10
+                button.ui.button#searchBtn(onclick="search(this)") 검색
+            #resultText.top10(style="white-space: pre-line;")
             each info in result
                 .ui.message
                     .header #{info.AREA_NM}
