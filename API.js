@@ -80,3 +80,19 @@ exports.search = async function(req,res) {
         res.send({result:"fail",message:e.message});
     }
 }
+
+//음성파일 처리
+exports.processAudio = async function(req,res) {
+    try{
+        let audio = req.body.audio;
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
+        const result = await model.generateContent(audio);
+        const response = await result.response;
+        var text = response.text();
+        text = text.replace(/\:\*\*/g, ']').replace(/\*\*/g, '[').replace(/\*/g, '\n');
+        text = text.replace(/\([^)]*\)/g, '');
+        res.send({result:"success",op:"search",message:text});
+    }catch(e){
+        res.send({result:"fail",message:e.message});
+    }
+}

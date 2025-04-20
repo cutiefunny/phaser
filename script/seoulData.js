@@ -17,3 +17,15 @@ function search(comp){
   let data = document.getElementById("allData").innerText;
   callFetchApi("POST", baseUrl + "/search", JSON.stringify({prompt:prompt,data:data}));
 }
+
+function processAudio() {
+    const audio = document.getElementById('fileAudio');
+    const file = audio.files[0];
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const audioData = event.target.result;
+        const base64Audio = btoa(String.fromCharCode.apply(null, new Uint8Array(audioData)));
+        callFetchApi("POST", baseUrl + "/processAudio", JSON.stringify({audio:base64Audio}));
+    };
+    reader.readAsArrayBuffer(file);
+}
