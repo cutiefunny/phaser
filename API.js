@@ -6,7 +6,9 @@ const cheerio = require('cheerio');
 const axios = require('axios');
 const common = require('./common');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const logger = require("./logger");
 const genAI = new GoogleGenerativeAI("AIzaSyASJx4A2dk0LIt_8U_aeJfCKGLMqmrtjZg");
+const fs = require('fs');
 
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
@@ -85,14 +87,23 @@ exports.search = async function(req,res) {
 exports.processAudio = async function(req,res) {
     try{
         let audio = req.body.audio;
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
-        const result = await model.generateContent(audio);
-        const response = await result.response;
-        var text = response.text();
-        text = text.replace(/\:\*\*/g, ']').replace(/\*\*/g, '[').replace(/\*/g, '\n');
-        text = text.replace(/\([^)]*\)/g, '');
+        const audioBuffer = await Buffer.from(audio, 'base64');
+        const transcriptionPrompt = `Transcribe the following audio file and provide a summary under 100 words.`;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        logger.info("processAudio : "+transcriptionPrompt);
+        const result = await model.generateContent({
+            prompt: transcriptionPrompt,
+            audio: audioBuffer
+        });
+
+        const response = result.response;
+        const text = response.text();
+
+
         res.send({result:"success",op:"search",message:text});
     }catch(e){
+        logger.error("processAudio error : "+e.message);
         res.send({result:"fail",message:e.message});
     }
 }

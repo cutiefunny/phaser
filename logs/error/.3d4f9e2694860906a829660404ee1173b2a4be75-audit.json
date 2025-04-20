@@ -19,6 +19,16 @@
             "date": 1744902070305,
             "name": "C:\\project\\phaser\\logs\\error\\2025-04-18.error.log",
             "hash": "1ecf0c2ff719cc06de456b0a27e5942ebd1d30b24a9eb0fd2f6c39cf0d83004a"
+        },
+        {
+            "date": 1745160182723,
+            "name": "C:\\project\\phaser\\logs\\error\\2025-04-20.error.log",
+            "hash": "c4ac2430c9cb2056a9079bd6cff0030f93739ca9a07628318f073f3c9bc7e673"
+        },
+        {
+            "date": 1745162300485,
+            "name": "C:\\project\\phaser\\logs\\error\\2025-04-21.error.log",
+            "hash": "6abf51c47ac66e0eebb66a2755e9ffab62f55913e0cab5bf967de1971ace25d6"
         }
     ],
     "hashType": "sha256"

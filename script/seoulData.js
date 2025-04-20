@@ -19,7 +19,7 @@ function search(comp){
 }
 
 function processAudio() {
-    const audio = document.getElementById('fileAudio');
+    const audio = document.getElementById('audioInput');
     const file = audio.files[0];
     const reader = new FileReader();
     reader.onload = function(event) {
