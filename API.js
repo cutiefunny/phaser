@@ -68,6 +68,9 @@ exports.collectTelegramUpdates = async function(req, res) {
             let name = "";
             if (prompt.includes("주가") || prompt.includes("현재가")) {
                 name = prompt.split(" ")[0];
+                if (name === "네이버") {
+                    name = "NAVER";
+                }
                 const stockData = JSON.parse(fs.readFileSync('./krx-stock.json', 'utf8'));
                 const stock = stockData.find(item => item.name.trim() === name);
                 if (stock) {
