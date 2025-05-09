@@ -56,7 +56,7 @@ exports.collectTelegramUpdates = async function(req, res) {
 
         const collectedTexts = updates
             .filter(update => update.channel_post && update.channel_post.text && 
-            (Date.now() / 1000 - update.channel_post.date <= 20))
+            (Date.now() / 1000 - update.channel_post.date <= 10))
             .map(update => ({
             text: update.channel_post.text,
             chatId: update.channel_post.chat.id,
