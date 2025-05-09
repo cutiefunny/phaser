@@ -32,6 +32,7 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-cron.schedule('0 * * * *', async () => {
-    await API.getSearchMusclecat();
+cron.schedule('*/10 * * * * *', async () => {
+    // await API.getSearchMusclecat();
+    await API.collectTelegramUpdates();
 });
