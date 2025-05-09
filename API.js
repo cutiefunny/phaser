@@ -45,7 +45,7 @@ exports.getSearchMusclecat = async function(req,res) {
 } 
 
 //텔레그램 업데이트 수집
-exports.collectTelegramUpdates = async function(req, res) {
+exports.collectTelegramUpdates = async function(time) {
     const teleURL = 'https://api.telegram.org/bot8094077738:AAHjnDVzy7rvbQ53QxDi4GTZUyWvrj8AUts/getUpdates';
 
     try {
@@ -56,7 +56,7 @@ exports.collectTelegramUpdates = async function(req, res) {
 
         const collectedTexts = updates
             .filter(update => update.channel_post && update.channel_post.text && 
-            (Date.now() / 1000 - update.channel_post.date <= 5))
+            (time - update.channel_post.date <= 10))
             .map(update => ({
             text: update.channel_post.text,
             chatId: update.channel_post.chat.id,

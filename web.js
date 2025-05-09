@@ -34,5 +34,5 @@ app.listen(port, () => {
 
 cron.schedule('*/10 * * * * *', async () => {
     // await API.getSearchMusclecat();
-    await API.collectTelegramUpdates();
+    await API.collectTelegramUpdates(Date.now() / 1000);
 });
