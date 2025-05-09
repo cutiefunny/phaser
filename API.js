@@ -56,11 +56,11 @@ exports.collectTelegramUpdates = async function(req, res) {
 
         const collectedTexts = updates
             .filter(update => update.channel_post && update.channel_post.text && 
-            (moment.unix(update.channel_post.date).isAfter(moment().subtract(10, 'seconds'))))
+            (Date.now() / 1000 - update.channel_post.date <= 20))
             .map(update => ({
             text: update.channel_post.text,
             chatId: update.channel_post.chat.id,
-            date: moment.unix(update.channel_post.date).format('YYYY-MM-DD HH:mm:ss'),
+            date: update.channel_post.date,
             }));
         
         for (const text of collectedTexts) {
