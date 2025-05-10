@@ -83,7 +83,7 @@ exports.collectTelegramUpdates = async function(time) {
 
             redisClient.connect();
             const dateCheck = await redisClient.get(text.date);
-            if (text.date) {
+            if (dateCheck) {
                 return;
             }else {
                 await redisClient.set(text.date, text.date, { EX: 60 });
