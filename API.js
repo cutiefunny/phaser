@@ -82,11 +82,11 @@ exports.collectTelegramUpdates = async function(time) {
         for (const text of collectedTexts) {
 
             redisClient.connect();
-            const dateCheck = await redisClient.get('dateCheck');
-            if (dateCheck == text.date) {
+            const dateCheck = await redisClient.get(text.date);
+            if (text.date) {
                 return;
             }else {
-                await redisClient.set('dateCheck', text.date, { EX: 10 });
+                await redisClient.set(text.date, text.date, { EX: 60 });
             }
             if (!authorization) {
                 console.error("Access token not found in Redis");
