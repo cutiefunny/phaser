@@ -63,8 +63,9 @@ exports.collectTelegramUpdates = async function(time) {
         let beforePrice = "";
 
         const collectedTexts = updates
-            .filter(update => update.channel_post && update.channel_post.text && 
-            (time - update.channel_post.date <= 30))
+            .filter(update => update.channel_post && update.channel_post.text 
+                // && (time - update.channel_post.date <= 30)
+                && (update.channel_post.text.includes("주가") || update.channel_post.text.includes("현재가") || update.channel_post.text.includes("동향") || update.channel_post.text.includes("뉴스")))
             .map(update => ({
             text: update.channel_post.text,
             chatId: update.channel_post.chat.id,
@@ -86,7 +87,7 @@ exports.collectTelegramUpdates = async function(time) {
             if (dateCheck) {
                 return;
             }else {
-                await redisClient.set(text.date.toString(), text.date, { EX: 60 });
+                await redisClient.set(text.date.toString(), text.date, { EX: 24*60*60 });
             }
             if (!authorization) {
                 console.error("Access token not found in Redis");
