@@ -9,7 +9,15 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const logger = require("./logger");
 const genAI = new GoogleGenerativeAI("AIzaSyASJx4A2dk0LIt_8U_aeJfCKGLMqmrtjZg");
 const fs = require('fs');
-const e = require("express");
+const redis = require('redis');
+const redisClient = redis.createClient({
+    username : process.env.REDIS_USER,
+    password : process.env.REDIS_PASSWORD,
+    socket: {
+        host : process.env.REDIS_HOST,
+        port : process.env.REDIS_PORT
+    }
+});
 
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
@@ -63,7 +71,29 @@ exports.collectTelegramUpdates = async function(time) {
             date: update.channel_post.date,
             }));
         
+        if (collectedTexts.length === 0) {
+            return;
+        }
+
+        await redisClient.connect();
+        const authorization = await redisClient.get('access_token');
+        await redisClient.disconnect();
+        
         for (const text of collectedTexts) {
+
+            redisClient.connect();
+            const dateCheck = await redisClient.get('dateCheck');
+            if (dateCheck == text.date) {
+                return;
+            }else {
+                await redisClient.set('dateCheck', text.date);
+            }
+            if (!authorization) {
+                console.error("Access token not found in Redis");
+                return;
+            }
+            redisClient.disconnect();
+
             let prompt = text.text;
             let name = "";
             if (prompt.includes("주가") || prompt.includes("현재가") || (prompt.includes("동향") || prompt.includes("뉴스"))) {
@@ -81,9 +111,9 @@ exports.collectTelegramUpdates = async function(time) {
                         {
                             headers: {
                                 "Content-Type": "application/json",
-                                "authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ0b2tlbiIsImF1ZCI6ImNiMmViNzkzLTA0YWMtNGZmMS05NTZiLWY5NzU0NWUwODNmYiIsInByZHRfY2QiOiIiLCJpc3MiOiJ1bm9ndyIsImV4cCI6MTc0Njg1MDcyOSwiaWF0IjoxNzQ2NzY0MzI5LCJqdGkiOiJQUzJNOFA5RmE5VHBkZ1ZHekxWcnIwWmdjOW9GU0dFRDdac2YifQ.cVxts633x1nhhJt2S7QG_bAi1d0W1fAA9g712m3nrxlFPgNhT-xAWQyR7VxX1ngZqMcM3Ixo5helwNn9iQ9YnQ", // Replace with your actual access token
-                                "appkey": "PS2M8P9Fa9TpdgVGzLVrr0Zgc9oFSGED7Zsf", // Replace with your app key
-                                "appsecret": "79QrQtanIHzf9FR194WGfqDex8D7cwKAs68ZSHlSpM/UUf/H73piVwcOYM9sucIDLVRPAC1P8LEXETfmcJYuLGIj9NF/Mv26UlzOZ9ZC1mZNxZG58CWJ5oaWCWgt/NuchiFYnBl9V2sCNItI3oRkdMrZmZ/gb5DUVjEazK+a9FY3jQmaBrg=", // Replace with your app secret
+                                "authorization": "Bearer " + authorization,
+                                "appkey": process.env.HANTU_APP,
+                                "appsecret": process.env.HANTU_SECRET,
                                 "tr_id": "FHKST01010100", // Transaction ID for the API
                             }
                         }
@@ -117,8 +147,8 @@ exports.collectTelegramUpdates = async function(time) {
                             const naverResponse = await fetch(url, {
                                 method: "GET",
                                 headers: {
-                                    "X-Naver-Client-Id": "rpSwp30UzjYedQbVkC5Q",
-                                    "X-Naver-Client-Secret": "QTbXNdCGVN"
+                                    "X-Naver-Client-Id": process.env.NAVER_CLIENT_ID,
+                                    "X-Naver-Client-Secret": process.env.NAVER_CLIENT_SECRET,
                                 },
                             });
                             const naverData = await naverResponse.json();
@@ -147,27 +177,9 @@ exports.collectTelegramUpdates = async function(time) {
                         console.error("한국투자증권 API 호출 실패:", koreaInvestmentResponse.statusText);
                     }
 
-                }
+                } 
             }
         }
-
-
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-04-17"});
-
-
-        // for (const text of collectedTexts) {
-        //     const options = {
-        //         method: 'POST',
-        //         url: 'https://api.telegram.org/bot8094077738:AAHjnDVzy7rvbQ53QxDi4GTZUyWvrj8AUts/sendMessage',
-        //         headers: { 'Content-Type': 'application/json' },
-        //         data: { chat_id: text.chatId, text: text.text }
-        //     };
-        //     try {
-        //         await axios(options);
-        //     } catch (error) {
-        //         logger.error("Error sending message to Telegram: " + error.message);
-        //     }
-        // }
     } catch (error) {
         logger.error("collectTelegramUpdates error: " + error.message);
     }

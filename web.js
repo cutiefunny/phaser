@@ -7,6 +7,8 @@ const CRUD= require("./CRUD");
 const API= require("./API");
 const common = require('./common');
 const cron = require('node-cron');
+const axios = require('axios');
+const redis = require('redis');
 
 app.set('view engine', 'pug');
 app.set('views', __dirname + '/views');
@@ -35,4 +37,46 @@ app.listen(port, () => {
 cron.schedule('*/10 * * * * *', async () => {
     // await API.getSearchMusclecat();
     await API.collectTelegramUpdates(Date.now() / 1000);
+
+    const currentHour = new Date().getHours();
+
+    // 20시마다 access token을 갱신한다.
+    if (currentHour == 14) {
+        await generateToken();
+    }
 });
+
+async function generateToken() {
+    try {
+            const response = await axios.post('https://openapi.koreainvestment.com:9443/oauth2/tokenP?', {
+                "appkey":process.env.HANTU_APP,
+                "appsecret":process.env.HANTU_SECRET,
+                "grant_type":"client_credentials",
+            });
+            const accessToken = response.data.access_token;
+
+            const redisClient = redis.createClient({
+                username: process.env.REDIS_USER,
+                password: process.env.REDIS_PASSWORD,
+                socket: {
+                    host: process.env.REDIS_HOST,
+                    port: process.env.REDIS_PORT
+                }
+            });
+
+            await redisClient.connect();
+
+            try {
+                await redisClient.set('access_token', accessToken, {
+                    EX: 24 * 60 * 60 // 16 hours in seconds
+                });
+                console.info('한투 토큰 갱신 : ' + accessToken);
+            } catch (err) {
+                console.error('Error saving access token to Redis:', err);
+            } finally {
+                await redisClient.disconnect();
+            }
+        } catch (error) {
+            console.error('Error fetching access token:', error);
+        }
+}
