@@ -34,16 +34,9 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-cron.schedule('*/10 * * * * *', async () => {
-    // await API.getSearchMusclecat();
-    // await API.collectTelegramUpdates(Date.now() / 1000);
-
-    const currentHour = new Date().getHours();
-
-    // 20시마다 access token을 갱신한다.
-    if (currentHour == 0) {
-        await generateToken();
-    }
+cron.schedule('0 * * * *', async () => {
+    console.log('한투 토큰 갱신');
+    await generateToken();
 });
 
 async function generateToken() {
