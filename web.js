@@ -36,12 +36,12 @@ app.listen(port, () => {
 
 cron.schedule('*/10 * * * * *', async () => {
     // await API.getSearchMusclecat();
-    await API.collectTelegramUpdates(Date.now() / 1000);
+    // await API.collectTelegramUpdates(Date.now() / 1000);
 
     const currentHour = new Date().getHours();
 
     // 20시마다 access token을 갱신한다.
-    if (currentHour == 14) {
+    if (currentHour == 0) {
         await generateToken();
     }
 });
