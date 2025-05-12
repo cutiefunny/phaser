@@ -35,7 +35,7 @@ app.listen(port, () => {
 });
 
 cron.schedule('0 * * * *', async () => {
-    if (new Date().getHours() === 2) {
+    if (new Date().getHours() === 0) {
         console.log('한투 토큰 갱신');
         await generateToken();
     }
