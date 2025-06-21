@@ -54,12 +54,13 @@ exports.getSearchMusclecat = async function(req,res) {
 } 
 
 exports.getLiveMatchInfo = async function (req, res) {
+    console.log("getLiveMatchInfo : " + JSON.stringify(req.body));
     const url = 'https://www.betman.co.kr/matchinfo/inqMainLivescreMchList.do';
     const headers = {
         'Content-Type': 'application/json',
     };
     const data = {
-        "schDate": "2025.06.21",
+        "schDate": req.body.schDate || "2025.06.21",
         "_sbmInfo": {
             "_sbmInfo": {
             "debugMode": "false"

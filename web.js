@@ -25,6 +25,7 @@ app.get('/main', router.main2);
 app.get('/wallball', router.wallball);
 app.get('/adventure', router.adventure);
 app.get('/seoulData', router.seoulData);
+app.get('/getLiveMatchInfo', router.getLiveMatchInfo);
 
 app.post('/saveScore', API.saveScore);
 app.post('/search', API.search);

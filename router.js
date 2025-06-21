@@ -81,3 +81,27 @@ exports.seoulData = async function (req,res){
         , allData : JSON.stringify(allData)
     });   
 }
+
+exports.getLiveMatchInfo = async function (req, res) {
+    console.log("getLiveMatchInfo : " + JSON.stringify(req.query));
+    const url = 'https://www.betman.co.kr/matchinfo/inqMainLivescreMchList.do';
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+    const data = {
+        "schDate": req.query.schDate || "2025.06.21",
+        "_sbmInfo": {
+            "_sbmInfo": {
+                "debugMode": "false"
+            }
+        }
+    };
+
+    try {
+        const response = await axios.post(url, data, { headers });
+        res.send({ result: "success", data: response.data });
+    } catch (error) {
+        console.error("getLiveMatchInfo error: " + error.message);
+        res.send({ result: "fail", message: error.message });
+    }
+};
