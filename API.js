@@ -77,6 +77,29 @@ exports.getLiveMatchInfo = async function (req, res) {
     }
 };
 
+exports.inqMainGameInfo = async function (req, res) {
+    console.log("inqMainGameInfo : " + JSON.stringify(req.body));
+    const url = 'https://www.betman.co.kr/matchinfo/inqMainGameInfo.do';
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+    const data = {
+        "_sbmInfo": {
+            "_sbmInfo": {
+                "debugMode": "false"
+            }
+        }
+    }
+
+    try {
+        const response = await axios.post(url, data, { headers });
+        res.send({ result: "success", data: response.data });
+    } catch (error) {
+        logger.error("inqMainGameInfo error: " + error.message);
+        res.send({ result: "fail", message: error.message });
+    }
+}
+
 //텔레그램 업데이트 수집
 // exports.collectTelegramUpdates = async function(time) {
 //     const teleURL = 'https://api.telegram.org/bot8094077738:AAHjnDVzy7rvbQ53QxDi4GTZUyWvrj8AUts/getUpdates';
