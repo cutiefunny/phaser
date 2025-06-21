@@ -29,6 +29,7 @@ app.get('/seoulData', router.seoulData);
 app.post('/saveScore', API.saveScore);
 app.post('/search', API.search);
 app.post('/processAudio', API.processAudio);
+app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
