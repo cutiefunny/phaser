@@ -272,6 +272,28 @@ exports.search = async function(req,res) {
     }
 }
 
+//제미나이 서치 스트리밍 테스트
+exports.generate = async function(req,res) {
+    try{
+        let prompt = req.body.prompt;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Transfer-Encoding', 'chunked');
+
+        const result = await model.generateContentStream(prompt);
+
+        for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            res.write(chunkText); // 받은 텍스트 조각을 클라이언트로 즉시 전송
+            }
+
+        res.end(); // 스트림이 끝났음을 알림
+    }catch(e){
+        res.send({result:"fail",message:e.message});
+    }
+}
+
 //음성파일 처리
 exports.processAudio = async function(req,res) {
     try{

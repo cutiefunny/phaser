@@ -15,30 +15,30 @@ client.connect();
 const db = client.db("game");
 
 // MySQL connection setup
-const connection = mysql2.createConnection({
-    host: 'musclecron.cafe24app.com',
-    user: "musclecat2",
-    password: "ghks1015",
-    database: 'musclecat2',
-    port: 3306
-});
+// const connection = mysql2.createConnection({
+//     host: 'musclecron.cafe24app.com',
+//     user: "musclecat2",
+//     password: "ghks1015",
+//     database: 'musclecat2',
+//     port: 3306
+// });
 
 //Read from mysql
-exports.searchDataMysql = async function (op,param){
-    try{
-        let res = null;
-        if(op=="getAllData"){
-            let sql = "SELECT * FROM SEOUL_DATA";
-            let rows = await (await connection).execute(sql);
-            logger.info("rows : ",rows[0]);
-            res = rows[0];
-        }
-        return res;
-    }catch(err){
-        logger.error("mysql error : ",err);
-        return err;
-    }
-}
+// exports.searchDataMysql = async function (op,param){
+//     try{
+//         let res = null;
+//         if(op=="getAllData"){
+//             let sql = "SELECT * FROM SEOUL_DATA";
+//             let rows = await (await connection).execute(sql);
+//             logger.info("rows : ",rows[0]);
+//             res = rows[0];
+//         }
+//         return res;
+//     }catch(err){
+//         logger.error("mysql error : ",err);
+//         return err;
+//     }
+// }
 
 //Create
 exports.insertData = async function (col,param){

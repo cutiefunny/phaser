@@ -31,6 +31,7 @@ app.post('/search', API.search);
 app.post('/processAudio', API.processAudio);
 app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
 app.post('/inqMainGameInfo', API.inqMainGameInfo);
+app.post('/generate', API.generate);
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
