@@ -12,11 +12,10 @@ const redis = require('redis');
 const cors = require('cors'); // 💡 1. cors 패키지 불러오기
 
 // 💡 2. CORS 미들웨어 설정
-// localhost:5173からのリクエストを許可する
 const corsOptions = {
   origin: [
     'http://localhost:5173',
-    'https://react-flow-three-ecru.vercel.app/'
+    'https://react-flow-three-ecru.vercel.app'
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
