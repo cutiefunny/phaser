@@ -248,7 +248,7 @@ exports.search = async function(req,res) {
         let prompt = req.body.prompt;
         let data = req.body.data;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"});
         // let addPrompt = '';
         // const detectedLanguage = common.detectLanguage(data);
         // if (detectedLanguage === 'ko') {
@@ -277,7 +277,7 @@ exports.generate = async function(req,res) {
     try{
         let prompt = req.body.prompt;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"});
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.setHeader('Transfer-Encoding', 'chunked');
 
