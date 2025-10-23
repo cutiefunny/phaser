@@ -10,15 +10,15 @@ const logger = require("./logger");
 const genAI = new GoogleGenerativeAI("AIzaSyAx9Ko9eZtUJ6-7BXuLOrld0kcF9ZGRmL4");
 const fs = require('fs');
 const redis = require('redis');
-// const redisClient = redis.createClient({
-//     username : process.env.REDIS_USER,
-//     password : process.env.REDIS_PASSWORD,
-//     socket: {
-//         host : process.env.REDIS_HOST,
-//         port : process.env.REDIS_PORT
-//     }
-// });
-// redisClient.connect();
+const redisClient = redis.createClient({
+    username : process.env.REDIS_USER,
+    password : process.env.REDIS_PASSWORD,
+    socket: {
+        host : process.env.REDIS_HOST,
+        port : process.env.REDIS_PORT
+    }
+});
+redisClient.connect();
 
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
@@ -293,6 +293,38 @@ exports.generate = async function(req,res) {
         res.send({result:"fail",message:e.message});
     }
 }
+
+//제미나이 기반의 오늘의 한 줄 운세를 생성하여 Redis에 저장
+exports.getDailyFortune = async function(req, res) {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const prompt = "오늘의 운세를 한 줄로 요약해줘. 운세만 적어주고 다른 말은 하지마.";
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        var text = response.text();
+
+        //일단 redis에서 List 형식의 unsetalk을 가져온다.
+        let existingFortunes = await redisClient.lRange('unsetalk', 0, -1);
+
+        if (existingFortunes.some(fortune => fortune.substring(0, 5) === text.substring(0, 5))) {
+            res.send({ result: "fail", message: "이미 존재하는 운세입니다." });
+            return;
+        }
+
+        const listLength = await redisClient.lLen('unsetalk');
+        if (listLength >= 30) {
+            await redisClient.lPop('unsetalk');
+        }
+
+        //redis의 List 형식의 unsetalk 키에 push
+        await redisClient.rPush('unsetalk', text);
+
+        res.send({ result: "success", op: "getDailyFortune", message: text });
+    } catch (e) {
+        res.send({ result: "fail", message: e.message });
+    }
+};
 
 //음성파일 처리
 exports.processAudio = async function(req,res) {

@@ -49,6 +49,7 @@ app.post('/processAudio', API.processAudio);
 app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
 app.post('/inqMainGameInfo', API.inqMainGameInfo);
 app.post('/generate', API.generate);
+app.post('/getDailyFortune', API.getDailyFortune);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
@@ -59,6 +60,8 @@ cron.schedule('0 * * * *', async () => {
     console.log('한투 토큰 갱신');
     await generateToken();
   }
+  console.log('오늘의 운세 생성');
+  await API.getDailyFortune(null, null);
 });
 
 async function generateToken() {
