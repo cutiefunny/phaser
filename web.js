@@ -17,7 +17,10 @@ const corsOptions = {
     'http://localhost:3000',
     'https://musclecat-chat.vercel.app',
     'http://localhost:5173',
-    'https://react-flow-three-ecru.vercel.app'
+    'https://react-flow-three-ecru.vercel.app',
+    'https://clt-chatbot.vercel.app/',
+    'http://202.20.84.65:10001/',
+    'http://202.20.84.65:10000/'
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
