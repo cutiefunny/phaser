@@ -296,6 +296,7 @@ exports.generate = async function(req,res) {
     }
 }
 
+//오늘의 운세 생성
 exports.getDailyFortune = async function(req, res) {
     try {
         // 1. 모델 이름 설정
@@ -366,6 +367,31 @@ exports.getDailyFortune = async function(req, res) {
 
     } catch (e) {
         console.error("getDailyFortune 오류:", e); // 서버 로그에 상세 오류 출력
+        res.send({ result: "fail", message: e.message });
+    }
+};
+
+//오늘의 운세 1개 가져오기
+exports.getOneFortune = async function(req, res) {
+    try {
+        // 1. 리스트의 총 길이를 가져옵니다.
+        const length = await redisClient.lLen('unsetalk');
+
+        if (length === 0) {
+            console.log("리스트가 비어있습니다.");
+            return null;
+        }
+
+        // 2. 랜덤 인덱스를 계산합니다. (0부터 length-1 사이)
+        const randomIndex = Math.floor(Math.random() * length);
+
+        // 3. 해당 인덱스의 값을 가져옵니다.
+        const randomMember = await redisClient.lIndex('unsetalk', randomIndex);
+
+        console.log(`랜덤 운세: ${randomMember}`);
+        res.send({ result: "success", fortune: randomMember });
+    } catch (e) {
+        console.error("Redis 랜덤 멤버 조회 중 오류:", e);
         res.send({ result: "fail", message: e.message });
     }
 };

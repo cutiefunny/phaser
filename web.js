@@ -50,6 +50,7 @@ app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
 app.post('/inqMainGameInfo', API.inqMainGameInfo);
 app.post('/generate', API.generate);
 app.post('/getDailyFortune', API.getDailyFortune);
+app.post('/getOneFortune', API.getOneFortune);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
