@@ -59,9 +59,9 @@ cron.schedule('0 * * * *', async () => {
   if (new Date().getHours() === 0) {
     console.log('한투 토큰 갱신');
     await generateToken();
+    console.log('오늘의 운세 생성');
+    await API.getDailyFortune(null, null);
   }
-  console.log('오늘의 운세 생성');
-  await API.getDailyFortune(null, null);
 });
 
 async function generateToken() {

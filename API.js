@@ -9,6 +9,8 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const logger = require("./logger");
 const genAI = new GoogleGenerativeAI("AIzaSyAx9Ko9eZtUJ6-7BXuLOrld0kcF9ZGRmL4");
 const fs = require('fs');
+const { OpenAI } = require("openai");
+const openai = new OpenAI();
 const redis = require('redis');
 const redisClient = redis.createClient({
     username : process.env.REDIS_USER,
@@ -294,34 +296,68 @@ exports.generate = async function(req,res) {
     }
 }
 
-//제미나이 기반의 오늘의 한 줄 운세를 생성하여 Redis에 저장
 exports.getDailyFortune = async function(req, res) {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const prompt = "오늘의 운세를 한 줄로 요약해줘. 운세만 적어주고 다른 말은 하지마.";
+        // 1. 모델 이름 설정
+        const model = "gpt-5-nano";
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        var text = response.text();
+        // 2. 프롬프트 (20개 JSON 배열 요청)
+        const promptMessages = [
+            {
+                "role": "system",
+                "content": "You must output a valid JSON object."
+            },
+            {
+                "role": "user",
+                "content": "오늘의 운세 20문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 20개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해."
+            }
+        ];
 
-        //일단 redis에서 List 형식의 unsetalk을 가져온다.
-        let existingFortunes = await redisClient.lRange('unsetalk', 0, -1);
+        // 3. OpenAI Chat Completions API 호출
+        const chatCompletion = await openai.chat.completions.create({
+            model: model,
+            messages: promptMessages,
+            response_format: { type: "json_object" } // JSON 응답 강제
+        });
 
-        if (existingFortunes.some(fortune => fortune.substring(0, 5) === text.substring(0, 5))) {
-            res.send({ result: "fail", message: "이미 존재하는 운세입니다." });
-            return;
+        const responseText = chatCompletion.choices[0].message.content;
+        let newFortunes = [];
+
+        try {
+            // 4. JSON 응답 파싱 (응답이 { "fortunes": [...] } 형태일 것)
+            newFortunes = JSON.parse(responseText).fortunes;
+            if (!Array.isArray(newFortunes)) {
+                throw new Error("API 응답이 배열 형태가 아닙니다.");
+            }
+        } catch (parseError) {
+            console.error("JSON 파싱 오류:", responseText);
+            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
         }
 
-        const listLength = await redisClient.lLen('unsetalk');
-        if (listLength >= 30) {
-            await redisClient.lPop('unsetalk');
+        // 5. Redis 로직 (기존 리스트 삭제 후 새 리스트 추가)
+
+        // (1) 기존 'unsetalk' 키 (리스트)를 삭제합니다.
+        await redisClient.del('unsetalk');
+
+        // (2) API로부터 받은 새 운세 배열을 'unsetalk' 리스트에 PUSH합니다.
+        // (API가 빈 배열을 반환하는 예외 케이스 처리)
+        if (newFortunes && newFortunes.length > 0) {
+            await redisClient.rPush('unsetalk', newFortunes);
+        } else {
+            // 빈 리스트가 저장되는 것을 방지
+            throw new Error("API로부터 운세 데이터를 받지 못했습니다.");
         }
 
-        //redis의 List 형식의 unsetalk 키에 push
-        await redisClient.rPush('unsetalk', text);
+        // 6. 성공 응답
+        res.send({ 
+            result: "success", 
+            op: "getDailyFortune", 
+            message: `'unsetalk' 리스트를 ${newFortunes.length}개의 새 운세로 교체했습니다.`,
+            newFortunesList: newFortunes // 교체된 전체 리스트 반환
+        });
 
-        res.send({ result: "success", op: "getDailyFortune", message: text });
     } catch (e) {
+        console.error("getDailyFortune 오류:", e); // 서버 로그에 상세 오류 출력
         res.send({ result: "fail", message: e.message });
     }
 };
