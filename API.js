@@ -302,7 +302,7 @@ exports.getDailyFortune = async function(req, res) {
         // 1. 모델 이름 설정
         const model = "gpt-5-nano";
 
-        // 2. 프롬프트 (20개 JSON 배열 요청)
+        // 2. 프롬프트 (30개 JSON 배열 요청)
         const promptMessages = [
             {
                 "role": "system",
@@ -310,7 +310,7 @@ exports.getDailyFortune = async function(req, res) {
             },
             {
                 "role": "user",
-                "content": "오늘의 운세 20문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해."
+                "content": "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해."
             }
         ];
 
@@ -337,8 +337,8 @@ exports.getDailyFortune = async function(req, res) {
 
         //newFortunes의 각 항목이 "오늘은"으로 시작하지 않도록 수정
         newFortunes = newFortunes.map(fortune => {
-            if (fortune.startsWith("오늘은")) {
-                return fortune.replace(/^오늘은\s*/, '');
+            if (fortune.startsWith("오늘은") || fortune.startsWith("오늘의")) {
+                return fortune.replace(/^오늘은\s*/, '').replace(/^오늘의\s*/, '');
             }
             return fortune;
         });
