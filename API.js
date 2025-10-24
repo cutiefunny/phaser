@@ -334,6 +334,14 @@ exports.getDailyFortune = async function(req, res) {
             throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
         }
 
+        //newFortunes의 각 항목이 "오늘은"으로 시작하지 않도록 수정
+        newFortunes = newFortunes.map(fortune => {
+            if (fortune.startsWith("오늘은")) {
+                return fortune.replace(/^오늘은\s*/, '');
+            }
+            return fortune;
+        });
+
         // 5. Redis 로직 (기존 리스트 삭제 후 새 리스트 추가)
 
         // (1) 기존 'unsetalk' 키 (리스트)를 삭제합니다.
