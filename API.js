@@ -310,7 +310,7 @@ exports.getDailyFortune = async function(req, res) {
             },
             {
                 "role": "user",
-                "content": "오늘의 운세 20문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 20개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해."
+                "content": "오늘의 운세 20문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해."
             }
         ];
 
