@@ -1,6 +1,7 @@
 /logs*
 /script/config.js
 .env
+serviceAccountKey.json
 
 *.log
 *.gz
