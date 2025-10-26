@@ -20,7 +20,8 @@ const corsOptions = {
     'https://react-flow-three-ecru.vercel.app',
     'https://clt-chatbot.vercel.app/',
     'http://202.20.84.65:10001/',
-    'http://202.20.84.65:10000/'
+    'http://202.20.84.65:10000/',
+    'https://musclecat-studio.com'
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
