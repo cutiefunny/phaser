@@ -21,7 +21,8 @@ const corsOptions = {
     'https://clt-chatbot.vercel.app/',
     'http://202.20.84.65:10001/',
     'http://202.20.84.65:10000/',
-    'https://musclecat-studio.com'
+    'https://musclecat-studio.com',
+    'https://www.chuihyang.com',
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
@@ -64,6 +65,7 @@ cron.schedule('0 * * * *', async () => {
     await generateToken();
     console.log('오늘의 운세 생성');
     await API.getDailyFortune(null, null);
+    await API.getDailyFortune({ "body":{ "agenda": "연애" } }, null);
   }else if (new Date().getHours() === 8) {
     console.log('오늘의 운세톡 발송');
     await API.sendFortune(null, null);
