@@ -192,10 +192,21 @@ exports.generate = async function(req,res) {
 //오늘의 운세 생성 (Firebase Firestore 사용)
 exports.getDailyFortune = async function(req, res) {
     try {
-        const modelName = "gpt-5-nano"; // 모델 이름 확인 (gpt-5-nano는 아직 없을 수 있습니다)
+		let agenda = req.body ? req.body.agenda : null;
+		let prompt = "";
+		let document = "";
+        if (!agenda) {
+            prompt = "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+			document = "latest";
+        }else if(agenda === "연애"){
+            prompt = "오늘의 연애 운세 30문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+			document = "love";
+        }
+
+        const modelName = "gpt-5-nano";
         const promptMessages = [
             { role: "system", content: "You must output a valid JSON object." },
-            { role: "user", content: "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해." }
+            { role: "user", content: prompt }
         ];
 
         const chatCompletion = await openai.chat.completions.create({
@@ -230,20 +241,20 @@ exports.getDailyFortune = async function(req, res) {
         }
 
         // Firestore에 저장 (단일 문서 방식)
-        const fortuneRef = db.collection('dailyFortunes').doc('latest'); // 'latest' 문서에 저장
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
         await fortuneRef.set({
             fortunes: newFortunes,
             updatedAt: admin.firestore.FieldValue.serverTimestamp() // 업데이트 시간 기록
         });
 
-        logger.info(`Firestore 'dailyFortunes/latest' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
+        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
 
         // res가 null일 수 있는 경우 (스케줄링 등) 처리
         if (res) {
             res.send({
                 result: "success",
                 op: "getDailyFortune",
-                message: `Firestore 'dailyFortunes/latest' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
+                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
                 newFortunesList: newFortunes
             });
         }
@@ -260,13 +271,20 @@ exports.getDailyFortune = async function(req, res) {
 //오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
 exports.getOneFortune = async function(req, res) {
     try {
-        const fortuneRef = db.collection('dailyFortunes').doc('latest');
+		let agenda = req.body ? req.body.agenda : null;
+	    let document = "";
+        if (!agenda) {
+			document = "latest";
+        }else if(agenda === "연애"){
+			document = "love";
+        }
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
         const docSnap = await fortuneRef.get();
 
         if (!docSnap.exists) {
-            logger.warn("Firestore에 'dailyFortunes/latest' 문서가 없습니다.");
+            logger.warn(`Firestore에 'dailyFortunes/${document || 'latest'}' 문서가 없습니다.`);
              // 문서가 없을 경우, getDailyFortune을 호출하여 새로 생성 시도
-             await exports.getDailyFortune(null, null); // req, res 없이 내부 호출
+             await exports.getDailyFortune(req, null); // req, res 없이 내부 호출
              // 잠시 대기 후 다시 시도 (선택적)
              await new Promise(resolve => setTimeout(resolve, 1000));
              const newDocSnap = await fortuneRef.get();
@@ -282,7 +300,7 @@ exports.getOneFortune = async function(req, res) {
         if (!Array.isArray(fortunes) || fortunes.length === 0) {
             logger.warn("'fortunes' 배열이 비어있거나 유효하지 않습니다.");
             // 운세 배열이 비어있을 경우, getDailyFortune을 호출하여 다시 채우기 시도
-            await exports.getDailyFortune(null, null);
+            await exports.getDailyFortune(req, null);
             await new Promise(resolve => setTimeout(resolve, 1000));
             const freshDocSnap = await fortuneRef.get();
             if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
