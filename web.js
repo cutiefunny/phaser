@@ -50,6 +50,7 @@ app.post('/search', API.search);
 app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
 app.post('/inqMainGameInfo', API.inqMainGameInfo);
 app.post('/generate', API.generate);
+app.post('/generateChat', API.generateChat);
 app.post('/getDailyFortune', API.getDailyFortune);
 app.post('/getOneFortune', API.getOneFortune);
 app.post('/sendKakaotalk', API.sendKakaotalk);
