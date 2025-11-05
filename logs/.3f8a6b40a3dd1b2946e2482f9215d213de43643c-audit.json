@@ -64,6 +64,11 @@
             "date": 1762015040239,
             "name": "C:\\project\\phaser\\logs\\2025-11-02.exception.log",
             "hash": "c3cb2603db5f280b7a3138437f629d27a1ed3c8a24d874abd12bcf0b3d429c4f"
+        },
+        {
+            "date": 1762343533703,
+            "name": "C:\\project\\phaser\\logs\\2025-11-05.exception.log",
+            "hash": "170f050a29f20e55cd9eb650c1dd69e0fd2dcf2fd7c1546f7e76403ad5d3901f"
         }
     ],
     "hashType": "sha256"

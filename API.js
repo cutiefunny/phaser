@@ -220,10 +220,10 @@ exports.getDailyFortune = async function(req, res) {
 		let prompt = "";
 		let document = "";
         if (!agenda) {
-            prompt = "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. 금전, 일, 인간관계, 건강에 대한 것을 적절히 섞어서, 반은 부정적인 운세, 반은 긍정적인 운세여야 해. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+            prompt = "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. 금전, 일, 인간관계, 건강에 대한 것을 적절히 섞어서 만들어줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
 			document = "latest";
         }else if(agenda === "연애"){
-            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 10개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
 			document = "love";
         }
 
