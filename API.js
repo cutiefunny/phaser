@@ -188,19 +188,30 @@ exports.saveScore = async function (req,res){
 
 /**
  * 제미나이 서치 (실패 시 챗지피티로 Fallback)
+ * [수정됨] data 유무에 따라 프롬프트 분기 처리
  */
 exports.search = async function(req,res) {
     try{
         let prompt = req.body.prompt;
         let data = req.body.data;
         let text = "";
+        let finalPrompt = ""; // 사용할 최종 프롬프트를 담을 변수
 
-        // Gemini용 통합 프롬프트 (Gemini와 OpenAI 모두 이 프롬프트를 사용)
-        const fullPrompt = `Based on the following data: \n\n${data}\n\nAnswer the question: "${prompt}"\n\nPlease provide a simple answer under 100 words in Korean.\n\n`;
+        // [수정된 부분] data의 존재 여부(truthy)로 프롬프트 내용을 분기합니다.
+        if (data) {
+            // 1. Data가 있을 경우: 기존 데이터 기반 프롬프트 사용
+            finalPrompt = `Based on the following data: \n\n${data}\n\nAnswer the question: "${prompt}"\n\nPlease provide a simple answer under 100 words in Korean.\n\n`;
+        } else {
+            // 2. Data가 없을 경우: 일상적인 자연어 답변용 프롬프트 사용
+            // (데이터 없이) 질문에 대해서만 한국어로 간결하게 답하도록 요청
+            finalPrompt = `${prompt}\n\nPlease provide a simple answer under 100 words in Korean.`;
+        }
+        // [수정 끝]
 
         try {
             // 1. Gemini (Primary) 시도
-            text = await _callGemini(fullPrompt);
+            // 수정된 finalPrompt를 _callGemini로 전달
+            text = await _callGemini(finalPrompt);
             res.send({result:"success", op:"search_gemini", message:text});
 
         } catch (geminiError) {
@@ -208,8 +219,8 @@ exports.search = async function(req,res) {
             
             // 2. OpenAI (Fallback) 시도
             try {
-                // 동일한 'fullPrompt' 사용
-                text = await _callOpenAI(fullPrompt); 
+                // 동일한 finalPrompt를 _callOpenAI로 전달
+                text = await _callOpenAI(finalPrompt); 
                 res.send({result:"success", op:"search_openai_fallback", message:text});
 
             } catch (openaiError) {
