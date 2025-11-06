@@ -15,14 +15,15 @@ const cors = require('cors'); // 💡 1. cors 패키지 불러오기
 const corsOptions = {
   origin: [
     'http://localhost:3000',
-    'https://musclecat-chat.vercel.app',
-    'http://localhost:5173',
-    'https://react-flow-three-ecru.vercel.app',
-    'https://clt-chatbot.vercel.app/',
-    'http://202.20.84.65:10001/',
-    'http://202.20.84.65:10000/',
-    'https://musclecat-studio.com',
-    'https://www.chuihyang.com',
+    'https://musclecat-chat.vercel.app', //근육고양이 채팅봇
+    'http://localhost:5173', //챗봇 시나리오 빌더 로컬
+    'https://react-flow-three-ecru.vercel.app', //챗봇 시나리오 빌더
+    'https://clt-chatbot.vercel.app/', //CLT 챗봇
+    'http://202.20.84.65:10001/', //CLT 사내망 시나리오 빌더
+    'http://202.20.84.65:10000/', //CLT 사내망 챗봇
+    'https://musclecat-studio.com', //근육고양이 스튜디오(운세톡 API)
+    'https://www.chuihyang.com', //취향만남(연애운 API)
+    'https://stock-info-smoky.vercel.app/', //주식정보앱
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
