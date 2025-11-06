@@ -23,7 +23,7 @@ const corsOptions = {
     'http://202.20.84.65:10000/', //CLT 사내망 챗봇
     'https://musclecat-studio.com', //근육고양이 스튜디오(운세톡 API)
     'https://www.chuihyang.com', //취향만남(연애운 API)
-    'https://stock-info-smoky.vercel.app/', //주식정보앱
+    'https://stock-info-smoky.vercel.app', //주식정보앱
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
