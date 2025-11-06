@@ -44,6 +44,52 @@ const redisClient = redis.createClient({
 redisClient.connect();
 */
 
+// --- 헬퍼 함수: API 호출 로직 분리 ---
+
+/**
+ * [헬퍼] Gemini API 호출
+ * @param {string} prompt - 전송할 전체 프롬프트
+ * @returns {Promise<string>} - 모델의 응답 텍스트
+ * @throws {Error} - API 호출 실패 시 에러 발생
+ */
+async function _callGemini(prompt) {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // 모델명 최신으로 변경 권장
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    if (!text) {
+        throw new Error("Gemini returned an empty response.");
+    }
+    return text;
+}
+
+/**
+ * [헬퍼] OpenAI API 호출
+ * @param {string} prompt - 전송할 유저 프롬프트
+ * @returns {Promise<string>} - 모델의 응답 텍스트
+ * @throws {Error} - API 호출 실패 시 에러 발생
+ */
+async function _callOpenAI(prompt) {
+    const modelName = "gpt-5-nano"; // (개발자님이 사용하신 모델명)
+
+    const promptMessages = [
+        { role: "system", content: "You are a helpful assistant that provides concise answers in Korean." },
+        { role: "user", content: prompt }
+    ];
+    
+    const chatCompletion = await openai.chat.completions.create({
+        model: modelName,
+        messages: promptMessages,
+        max_tokens: 1000, // [수정됨] 'max_completion_tokens' -> 'max_tokens'
+    });
+
+    const responseText = chatCompletion.choices[0].message.content;
+    if (!responseText) {
+        throw new Error("OpenAI returned an empty response.");
+    }
+    return responseText;
+}
+
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
     var label = "[네이버검색]";
@@ -140,26 +186,81 @@ exports.saveScore = async function (req,res){
     res.send({op:"saveScore",result:result});
 }
 
-//제미나이 서치
+/**
+ * 제미나이 서치 (실패 시 챗지피티로 Fallback)
+ */
 exports.search = async function(req,res) {
-    try{
-        let prompt = req.body.prompt;
-        let data = req.body.data;
+    try{
+        let prompt = req.body.prompt;
+        let data = req.body.data;
+        let text = "";
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"}); // 모델명 최신으로 변경 권장
-        prompt = `Based on the following data: \n\n${data}\n\nAnswer the question: "${prompt}"\n\nPlease provide a simple answer under 100 words in Korean.\n\n`;
+        // Gemini용 통합 프롬프트 (Gemini와 OpenAI 모두 이 프롬프트를 사용)
+        const fullPrompt = `Based on the following data: \n\n${data}\n\nAnswer the question: "${prompt}"\n\nPlease provide a simple answer under 100 words in Korean.\n\n`;
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        var text = response.text();
-        // 응답 텍스트 후처리 (Markdown 형식 유지 또는 제거 선택)
-        // text = text.replace(/\*\*/g, '').replace(/\*/g, ''); // 예: Markdown 제거
-        res.send({result:"success",op:"search",message:text});
-    }catch(e){
-        logger.error("search error: " + e.message); // 오류 로깅 추가
-        res.send({result:"fail",message:e.message});
-    }
+        try {
+            // 1. Gemini (Primary) 시도
+            text = await _callGemini(fullPrompt);
+            res.send({result:"success", op:"search_gemini", message:text});
+
+        } catch (geminiError) {
+            logger.warn(`Gemini search failed (falling back to OpenAI): ${geminiError.message}`);
+            
+            // 2. OpenAI (Fallback) 시도
+            try {
+                // 동일한 'fullPrompt' 사용
+                text = await _callOpenAI(fullPrompt); 
+                res.send({result:"success", op:"search_openai_fallback", message:text});
+
+            } catch (openaiError) {
+                // OpenAI 마저 실패하면 최종 에러로 처리
+                logger.error(`Fallback OpenAI search also failed: ${openaiError.message}`);
+                // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
+                throw new Error(`Both models failed. Gemini: ${geminiError.message}, OpenAI: ${openaiError.message}`);
+            }
+        }
+    } catch(e) {
+        // 최종 실패 (둘 다 실패했거나, 초기 설정 오류)
+        logger.error("search error (after fallback): " + e.message); 
+        res.send({result:"fail", message: e.message});
+    }
 }
+
+/**
+ * 챗지피티 서치 (실패 시 제미나이로 Fallback)
+ */
+exports.generateChat = async function(req,res) {
+    try{
+        let prompt = req.body.prompt; // 이 함수는 'data'를 사용하지 않음 (원본 로직 유지)
+        let text = "";
+
+        try {
+            // 1. OpenAI (Primary) 시도
+            text = await _callOpenAI(prompt);
+            res.send({ result: "success", op: "generateChat_openai", message: text });
+
+        } catch (openaiError) {
+            logger.warn(`OpenAI chat failed (falling back to Gemini): ${openaiError.message}`);
+
+            // 2. Gemini (Fallback) 시도
+            try {
+                // 동일한 'prompt' 사용
+                text = await _callGemini(prompt); 
+                res.send({ result: "success", op: "generateChat_gemini_fallback", message: text });
+            
+            } catch (geminiError) {
+                // Gemini 마저 실패하면 최종 에러로 처리
+                logger.error(`Fallback Gemini chat also failed: ${geminiError.message}`);
+                // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
+                throw new Error(`Both models failed. OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
+            }
+        }
+    } catch (e) {
+        // 최종 실패 (둘 다 실패했거나, 초기 설정 오류)
+        logger.error("generateChat 오류 (after fallback):", e);
+        res.send({ result: "fail", message: e.message });
+    }
+};
 
 //제미나이 서치 스트리밍 테스트
 exports.generate = async function(req,res) {
@@ -188,30 +289,6 @@ exports.generate = async function(req,res) {
         }
     }
 }
-
-//챗지피티 서치
-exports.generateChat = async function(req,res) {
-    try{
-        let prompt = req.body.prompt;
-        const modelName = "gpt-5-nano";
-
-        const promptMessages = [
-            { role: "system", content: "You are a helpful assistant that provides concise answers in Korean." },
-            { role: "user", content: prompt }
-        ];
-        const chatCompletion = await openai.chat.completions.create({
-            model: modelName,
-            messages: promptMessages,
-            max_completion_tokens: 1000,
-        });
-
-        const responseText = chatCompletion.choices[0].message.content;
-        res.send({ result: "success", op: "generateChat", message: responseText });
-    } catch (e) {
-        logger.error("generateChat 오류:", e);
-        res.send({ result: "fail", message: e.message });
-    }
-};
 
 //오늘의 운세 생성 (Firebase Firestore 사용)
 exports.getDailyFortune = async function(req, res) {
