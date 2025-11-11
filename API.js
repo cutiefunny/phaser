@@ -44,6 +44,52 @@ const redisClient = redis.createClient({
 redisClient.connect();
 */
 
+// --- 헬퍼 함수: API 호출 로직 분리 ---
+
+/**
+ * [헬퍼] Gemini API 호출
+ * @param {string} prompt - 전송할 전체 프롬프트
+ * @returns {Promise<string>} - 모델의 응답 텍스트
+ * @throws {Error} - API 호출 실패 시 에러 발생
+ */
+async function _callGemini(prompt) {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // 모델명 최신으로 변경 권장
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    if (!text) {
+        throw new Error("Gemini returned an empty response.");
+    }
+    return text;
+}
+
+/**
+ * [헬퍼] OpenAI API 호출
+ * @param {string} prompt - 전송할 유저 프롬프트
+ * @returns {Promise<string>} - 모델의 응답 텍스트
+ * @throws {Error} - API 호출 실패 시 에러 발생
+ */
+async function _callOpenAI(prompt) {
+    const modelName = "gpt-5-nano"; // (개발자님이 사용하신 모델명)
+
+    const promptMessages = [
+        { role: "system", content: "You are a helpful assistant that provides concise answers in Korean." },
+        { role: "user", content: prompt }
+    ];
+    
+    const chatCompletion = await openai.chat.completions.create({
+        model: modelName,
+        messages: promptMessages,
+        max_tokens: 1000, // [수정됨] 'max_completion_tokens' -> 'max_tokens'
+    });
+
+    const responseText = chatCompletion.choices[0].message.content;
+    if (!responseText) {
+        throw new Error("OpenAI returned an empty response.");
+    }
+    return responseText;
+}
+
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
     var label = "[네이버검색]";
@@ -140,26 +186,92 @@ exports.saveScore = async function (req,res){
     res.send({op:"saveScore",result:result});
 }
 
-//제미나이 서치
+/**
+ * 제미나이 서치 (실패 시 챗지피티로 Fallback)
+ * [수정됨] data 유무에 따라 프롬프트 분기 처리
+ */
 exports.search = async function(req,res) {
-    try{
-        let prompt = req.body.prompt;
-        let data = req.body.data;
+    try{
+        let prompt = req.body.prompt;
+        let data = req.body.data;
+        let text = "";
+        let finalPrompt = ""; // 사용할 최종 프롬프트를 담을 변수
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"}); // 모델명 최신으로 변경 권장
-        prompt = `Based on the following data: \n\n${data}\n\nAnswer the question: "${prompt}"\n\nPlease provide a simple answer under 100 words in Korean.\n\n`;
+        // [수정된 부분] data의 존재 여부(truthy)로 프롬프트 내용을 분기합니다.
+        if (data) {
+            // 1. Data가 있을 경우: 기존 데이터 기반 프롬프트 사용
+            finalPrompt = `Based on the following data: \n\n${data}\n\nAnswer the question: "${prompt}"\n\nPlease provide a simple answer under 100 words in Korean.\n\n`;
+        } else {
+            // 2. Data가 없을 경우: 일상적인 자연어 답변용 프롬프트 사용
+            // (데이터 없이) 질문에 대해서만 한국어로 간결하게 답하도록 요청
+            finalPrompt = `${prompt}\n\nPlease provide a simple answer under 100 words in Korean.`;
+        }
+        // [수정 끝]
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        var text = response.text();
-        // 응답 텍스트 후처리 (Markdown 형식 유지 또는 제거 선택)
-        // text = text.replace(/\*\*/g, '').replace(/\*/g, ''); // 예: Markdown 제거
-        res.send({result:"success",op:"search",message:text});
-    }catch(e){
-        logger.error("search error: " + e.message); // 오류 로깅 추가
-        res.send({result:"fail",message:e.message});
-    }
+        try {
+            // 1. Gemini (Primary) 시도
+            // 수정된 finalPrompt를 _callGemini로 전달
+            text = await _callGemini(finalPrompt);
+            res.send({result:"success", op:"search_gemini", message:text});
+
+        } catch (geminiError) {
+            logger.warn(`Gemini search failed (falling back to OpenAI): ${geminiError.message}`);
+            
+            // 2. OpenAI (Fallback) 시도
+            try {
+                // 동일한 finalPrompt를 _callOpenAI로 전달
+                text = await _callOpenAI(finalPrompt); 
+                res.send({result:"success", op:"search_openai_fallback", message:text});
+
+            } catch (openaiError) {
+                // OpenAI 마저 실패하면 최종 에러로 처리
+                logger.error(`Fallback OpenAI search also failed: ${openaiError.message}`);
+                // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
+                throw new Error(`Both models failed. Gemini: ${geminiError.message}, OpenAI: ${openaiError.message}`);
+            }
+        }
+    } catch(e) {
+        // 최종 실패 (둘 다 실패했거나, 초기 설정 오류)
+        logger.error("search error (after fallback): " + e.message); 
+        res.send({result:"fail", message: e.message});
+    }
 }
+
+/**
+ * 챗지피티 서치 (실패 시 제미나이로 Fallback)
+ */
+exports.generateChat = async function(req,res) {
+    try{
+        let prompt = req.body.prompt; // 이 함수는 'data'를 사용하지 않음 (원본 로직 유지)
+        let text = "";
+
+        try {
+            // 1. OpenAI (Primary) 시도
+            text = await _callOpenAI(prompt);
+            res.send({ result: "success", op: "generateChat_openai", message: text });
+
+        } catch (openaiError) {
+            logger.warn(`OpenAI chat failed (falling back to Gemini): ${openaiError.message}`);
+
+            // 2. Gemini (Fallback) 시도
+            try {
+                // 동일한 'prompt' 사용
+                text = await _callGemini(prompt); 
+                res.send({ result: "success", op: "generateChat_gemini_fallback", message: text });
+            
+            } catch (geminiError) {
+                // Gemini 마저 실패하면 최종 에러로 처리
+                logger.error(`Fallback Gemini chat also failed: ${geminiError.message}`);
+                // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
+                throw new Error(`Both models failed. OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
+            }
+        }
+    } catch (e) {
+        // 최종 실패 (둘 다 실패했거나, 초기 설정 오류)
+        logger.error("generateChat 오류 (after fallback):", e);
+        res.send({ result: "fail", message: e.message });
+    }
+};
 
 //제미나이 서치 스트리밍 테스트
 exports.generate = async function(req,res) {
@@ -192,10 +304,21 @@ exports.generate = async function(req,res) {
 //오늘의 운세 생성 (Firebase Firestore 사용)
 exports.getDailyFortune = async function(req, res) {
     try {
-        const modelName = "gpt-5-nano"; // 모델 이름 확인 (gpt-5-nano는 아직 없을 수 있습니다)
+		let agenda = req.body ? req.body.agenda : null;
+		let prompt = "";
+		let document = "";
+        if (!agenda) {
+            prompt = "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. 금전, 일, 인간관계, 건강에 대한 것을 적절히 섞어서 만들어줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+			document = "latest";
+        }else if(agenda === "연애"){
+            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 10개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+			document = "love";
+        }
+
+        const modelName = "gpt-5-nano";
         const promptMessages = [
             { role: "system", content: "You must output a valid JSON object." },
-            { role: "user", content: "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해." }
+            { role: "user", content: prompt }
         ];
 
         const chatCompletion = await openai.chat.completions.create({
@@ -230,20 +353,20 @@ exports.getDailyFortune = async function(req, res) {
         }
 
         // Firestore에 저장 (단일 문서 방식)
-        const fortuneRef = db.collection('dailyFortunes').doc('latest'); // 'latest' 문서에 저장
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
         await fortuneRef.set({
             fortunes: newFortunes,
             updatedAt: admin.firestore.FieldValue.serverTimestamp() // 업데이트 시간 기록
         });
 
-        logger.info(`Firestore 'dailyFortunes/latest' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
+        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
 
         // res가 null일 수 있는 경우 (스케줄링 등) 처리
         if (res) {
             res.send({
                 result: "success",
                 op: "getDailyFortune",
-                message: `Firestore 'dailyFortunes/latest' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
+                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
                 newFortunesList: newFortunes
             });
         }
@@ -260,13 +383,20 @@ exports.getDailyFortune = async function(req, res) {
 //오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
 exports.getOneFortune = async function(req, res) {
     try {
-        const fortuneRef = db.collection('dailyFortunes').doc('latest');
+		let agenda = req.body ? req.body.agenda : null;
+	    let document = "";
+        if (!agenda) {
+			document = "latest";
+        }else if(agenda === "연애"){
+			document = "love";
+        }
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
         const docSnap = await fortuneRef.get();
 
         if (!docSnap.exists) {
-            logger.warn("Firestore에 'dailyFortunes/latest' 문서가 없습니다.");
+            logger.warn(`Firestore에 'dailyFortunes/${document || 'latest'}' 문서가 없습니다.`);
              // 문서가 없을 경우, getDailyFortune을 호출하여 새로 생성 시도
-             await exports.getDailyFortune(null, null); // req, res 없이 내부 호출
+             await exports.getDailyFortune(req, null); // req, res 없이 내부 호출
              // 잠시 대기 후 다시 시도 (선택적)
              await new Promise(resolve => setTimeout(resolve, 1000));
              const newDocSnap = await fortuneRef.get();
@@ -282,7 +412,7 @@ exports.getOneFortune = async function(req, res) {
         if (!Array.isArray(fortunes) || fortunes.length === 0) {
             logger.warn("'fortunes' 배열이 비어있거나 유효하지 않습니다.");
             // 운세 배열이 비어있을 경우, getDailyFortune을 호출하여 다시 채우기 시도
-            await exports.getDailyFortune(null, null);
+            await exports.getDailyFortune(req, null);
             await new Promise(resolve => setTimeout(resolve, 1000));
             const freshDocSnap = await fortuneRef.get();
             if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {

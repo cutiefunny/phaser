@@ -13,20 +13,17 @@ const cors = require('cors'); // 💡 1. cors 패키지 불러오기
 
 // 💡 2. CORS 미들웨어 설정
 const corsOptions = {
-  origin: [
-    'http://localhost:3000',
-    /http:\/\/localhost:\d{4}/,
-    'https://musclecat-chat.vercel.app',
-    'http://localhost:5173',
-    'https://react-flow-three-ecru.vercel.app',
-    'https://clt-chatbot.vercel.app/',
-    'http://202.20.84.65:10001/',
-    'http://202.20.84.65:10000/',
-    'https://musclecat-studio.com',
-    'https://musclecat-chat.com',
-    'https://fitmeet-theta.vercel.app/',
-  ],
-  optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
+  origin: [
+    'http://localhost:3000',
+    'https://musclecat-chat.vercel.app',
+    'http://localhost:5173',
+    'https://react-flow-three-ecru.vercel.app',
+    'https://clt-chatbot.vercel.app/',
+    'http://202.20.84.65:10001/',
+    'http://202.20.84.65:10000/',
+    'https://musclecat-studio.com'
+  ],
+  optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
 
 app.use(cors(corsOptions)); // 💡 3. CORS 미들웨어를 Express 앱에 적용
@@ -52,6 +49,7 @@ app.post('/search', API.search);
 app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
 app.post('/inqMainGameInfo', API.inqMainGameInfo);
 app.post('/generate', API.generate);
+app.post('/generateChat', API.generateChat);
 app.post('/getDailyFortune', API.getDailyFortune);
 app.post('/getOneFortune', API.getOneFortune);
 app.post('/sendKakaotalk', API.sendKakaotalk);
@@ -62,15 +60,15 @@ app.listen(port, () => {
 });
 
 cron.schedule('0 * * * *', async () => {
-  if (new Date().getHours() === 0) {
-    console.log('한투 토큰 갱신');
-    await generateToken();
-    console.log('오늘의 운세 생성');
-    await API.getDailyFortune(null, null);
-  }else if (new Date().getHours() === 8) {
-    console.log('오늘의 운세톡 발송');
-    await API.sendFortune(null, null);
-  }
+  if (new Date().getHours() === 0) {
+    console.log('한투 토큰 갱신');
+    await generateToken();
+    console.log('오늘의 운세 생성');
+    await API.getDailyFortune(null, null);
+  }else if (new Date().getHours() === 8) {
+    console.log('오늘의 운세톡 발송');
+    await API.sendFortune(null, null);
+  }
 });
 
 async function generateToken() {
