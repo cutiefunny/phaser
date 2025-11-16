@@ -15,13 +15,17 @@ const cors = require('cors'); // 💡 1. cors 패키지 불러오기
 const corsOptions = {
   origin: [
     'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:8000',
+    'http://localhost:5173',
+    'http://localhost:5174',
     'https://musclecat-chat.vercel.app',
-    'http://localhost:5173',
     'https://react-flow-three-ecru.vercel.app',
     'https://clt-chatbot.vercel.app/',
     'http://202.20.84.65:10001/',
     'http://202.20.84.65:10000/',
-    'https://musclecat-studio.com'
+    'https://musclecat-studio.com',
+    'https://stock-info-smoky.vercel.app'
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
