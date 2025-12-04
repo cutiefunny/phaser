@@ -311,15 +311,13 @@ function pickRandomItems(arr, count) {
 exports.getDailyFortune = async function(req, res) {
     // 1. 운세를 다채롭게 만들 '랜덤 재료' 준비 (풀을 넓게 잡을수록 좋습니다)
     const materials = {
-        luckyItems: ["건강","금전","인간관계","창의력","인내","웃음","일","미래"],
-        places: ["집", "회사", "카페", "지하철 또는 버스", "책상", "편의점"],
+        luckyItems: ["건강","금전","인간관계","일"],
         actions: ["산책", "명상", "독서", "운동", "친구에게 연락하기", "새로운 음식 시도하기", "작은 목표 세우기","감사의 말 전하기","미안하다고 말하기","도움 요청하기","칭찬하기","새로운 취미 시작하기","처음 가는 장소 방문하기"],
     };
 
     // 2. '오늘의 재료' 랜덤 선정 (매 요청마다 바뀜)
-    const selectedItems = pickRandomItems(materials.luckyItems, 3);
-    const selectedPlaces = pickRandomItems(materials.places, 2);
-    const selectedAction = pickRandomItems(materials.actions, 1)[0];
+    const selectedItems = pickRandomItems(materials.luckyItems, 4);
+    const selectedAction = pickRandomItems(materials.actions, 10);
 
     try {
         let agenda = req.body ? req.body.agenda : null;
@@ -328,26 +326,22 @@ exports.getDailyFortune = async function(req, res) {
 
         // 3. 프롬프트 구성 (페르소나 부여 + 랜덤 재료 주입)
         const baseSystemPrompt = `
-            Role: 당신은 30년 경력의 신비롭고 통찰력 있는 점술가입니다.
-            Tone: 명언,철학적 스타일
-            Constraint: '오늘은 운이 좋습니다' 같은 뻔하고 추상적인 말은 절대 금지입니다. 구체적인 사물, 행동, 상황을 묘사하세요.
+            Tone: 비유적 표현이 없는 담백한 문어체. 권장형으로 작성.
+            Constraint: '오늘은 운이 좋습니다' 같은 뻔하고 추상적인 말은 절대 금지입니다. 구체적이고 실질적인 조언만 허용됩니다. ~하자 또는 ~하면 좋습니다 와 같은 권장형 문장으로 작성하세요.
         `;
 
         // 오늘의 랜덤 키워드 컨텍스트 생성
         const randomContext = `
-            [오늘의 영감 키워드]
-            이 키워드들을 운세 문장 작성에 적극적으로 활용하거나 비유의 소재로 쓰세요:
             - 주제: ${selectedItems.join(", ")}
-            - 장소: ${selectedPlaces.join(", ")}
-            - 추천 행동: ${selectedAction}
         `;
 
         if (!agenda) {
             prompt = `
                 ${randomContext}
                 
-                위 키워드들을 적절히 섞거나 변형하여, '오늘의 운세' 30문장을 작성해주세요.
-                금전, 일, 인간관계, 건강 운을 적절히 섞되, 각 문장은 서로 다른 구체적인 상황을 묘사해야 합니다.
+                30자 이내의 짧은 '오늘의 운세' 30문장을 작성해주세요.
+                하나하나의 문장은 랜덤한 1개의 각각 다른 주제를 구체적으로 다루어야 합니다.
+                문장에 :와 같은 구두점 사용을 피하고, 다양한 상황을 구체적으로 묘사하세요.
                 
                 출력 형식:
                 JSON 객체 내의 \`fortunes\` 키에 30개의 문자열 배열로 반환하세요.
@@ -413,8 +407,6 @@ exports.getDailyFortune = async function(req, res) {
             fortunes: newFortunes,
             theme: { // (선택사항) 오늘 사용된 테마도 같이 저장해두면 나중에 보여주기 좋습니다.
                 items: selectedItems,
-                color: selectedColor,
-                place: selectedPlaces
             },
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
