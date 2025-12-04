@@ -23,9 +23,9 @@ const admin = require('firebase-admin');
 const serviceAccount = require('./serviceAccountKey.json'); // <<--- 이 파일 경로를 확인해주세요.
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  // .env 파일의 projectId 사용 (환경 변수 이름 확인 필요)
-  // projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+  credential: admin.credential.cert(serviceAccount),
+  // .env 파일의 projectId 사용 (환경 변수 이름 확인 필요)
+  // projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
 });
 
 const db = admin.firestore();
@@ -34,12 +34,12 @@ const db = admin.firestore();
 /*
 const redis = require('redis');
 const redisClient = redis.createClient({
-    username : process.env.REDIS_USER,
-    password : process.env.REDIS_PASSWORD,
-    socket: {
-        host : process.env.REDIS_HOST,
-        port : process.env.REDIS_PORT
-    }
+    username : process.env.REDIS_USER,
+    password : process.env.REDIS_PASSWORD,
+    socket: {
+        host : process.env.REDIS_HOST,
+        port : process.env.REDIS_PORT
+    }
 });
 redisClient.connect();
 */
@@ -92,98 +92,98 @@ async function _callOpenAI(prompt) {
 
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
 exports.getSearchMusclecat = async function(req,res) {
-    var label = "[네이버검색]";
-    var datetime = moment().format('YYYY-MM-DD HH:mm:ss');
-    console.log({label:label,message:"start at " + datetime});
-    var url = 'https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query=%EA%B7%BC%EC%9C%A1%EA%B3%A0%EC%96%91%EC%9D%B4%EC%9E%A1%ED%99%94%EC%A0%90&nso=p%3A1h'; //1시간
+    var label = "[네이버검색]";
+    var datetime = moment().format('YYYY-MM-DD HH:mm:ss');
+    console.log({label:label,message:"start at " + datetime});
+    var url = 'https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query=%EA%B7%BC%EC%9C%A1%EA%B3%A0%EC%96%91%EC%9D%B4%EC%9E%A1%ED%99%94%EC%A0%90&nso=p%3A1h'; //1시간
 
-    try {
-        const response = await axios.get(url);
-        const $ = cheerio.load(response.data);
-        const teleURL = 'https://api.telegram.org/bot5432313787:AAGOdLVR78YEAty8edwCCsqma7G89F-PoUY/sendMessage';
+    try {
+        const response = await axios.get(url);
+        const $ = cheerio.load(response.data);
+        const teleURL = 'https://api.telegram.org/bot5432313787:AAGOdLVR78YEAty8edwCCsqma7G89F-PoUY/sendMessage';
 
-        $('.title_link').each(async function() {
-            if ($(this).attr('href').includes('blog.naver.com')) {
-                const options = {
-                    method: 'POST',
-                    url: teleURL,
-                    headers: { 'Content-Type': 'application/json' },
-                    data: { chat_id: '-1001903247433', text: $(this).attr('href') }
-                };
-                try {
-                    await axios(options);
-                } catch (error) {
-                    // 개별 메시지 전송 오류 로깅 (전체 프로세스 중단 방지)
-                    logger.error("Telegram sendMessage error: ", error.message);
-                }
-            }
-        });
-        // res가 정의되지 않았으므로 응답 전송 로직은 제거하거나 필요에 맞게 수정합니다.
-        // res.send({ result: "success" }); // 예시: 성공 응답 (필요시 추가)
-    } catch (error) {
-        logger.error("getSearchMusclecat error: " + error.message);
-        // res가 정의되지 않았으므로 오류 응답 로직은 제거하거나 필요에 맞게 수정합니다.
-        // res.send({ result: "fail", message: error.message }); // 예시: 오류 응답 (필요시 추가)
-        // 스케줄링 작업 등에서는 오류를 throw하여 상위에서 처리하도록 할 수 있습니다.
-        // throw error;
-    }
+        $('.title_link').each(async function() {
+            if ($(this).attr('href').includes('blog.naver.com')) {
+                const options = {
+                    method: 'POST',
+                    url: teleURL,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { chat_id: '-1001903247433', text: $(this).attr('href') }
+                };
+                try {
+                    await axios(options);
+                } catch (error) {
+                    // 개별 메시지 전송 오류 로깅 (전체 프로세스 중단 방지)
+                    logger.error("Telegram sendMessage error: ", error.message);
+                }
+            }
+        });
+        // res가 정의되지 않았으므로 응답 전송 로직은 제거하거나 필요에 맞게 수정합니다.
+        // res.send({ result: "success" }); // 예시: 성공 응답 (필요시 추가)
+    } catch (error) {
+        logger.error("getSearchMusclecat error: " + error.message);
+        // res가 정의되지 않았으므로 오류 응답 로직은 제거하거나 필요에 맞게 수정합니다.
+        // res.send({ result: "fail", message: error.message }); // 예시: 오류 응답 (필요시 추가)
+        // 스케줄링 작업 등에서는 오류를 throw하여 상위에서 처리하도록 할 수 있습니다.
+        // throw error;
+    }
 }
 
 exports.getLiveMatchInfo = async function (req, res) {
-    console.log("getLiveMatchInfo : " + JSON.stringify(req.body));
-    const url = 'https://www.betman.co.kr/matchinfo/inqMainLivescreMchList.do';
-    const headers = {
-        'Content-Type': 'application/json',
-    };
-    const data = {
-        "schDate": req.body.schDate || moment().format("YYYY.MM.DD"), // 날짜 형식 수정 및 기본값 오늘로 변경
-        "_sbmInfo": {
-            "_sbmInfo": {
-            "debugMode": "false"
-            }
-        }
-    }
+    console.log("getLiveMatchInfo : " + JSON.stringify(req.body));
+    const url = 'https://www.betman.co.kr/matchinfo/inqMainLivescreMchList.do';
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+    const data = {
+        "schDate": req.body.schDate || moment().format("YYYY.MM.DD"), // 날짜 형식 수정 및 기본값 오늘로 변경
+        "_sbmInfo": {
+            "_sbmInfo": {
+            "debugMode": "false"
+            }
+        }
+    }
 
-    try {
-        const response = await axios.post(url, data, { headers });
-        res.send({ result: "success", data: response.data });
-    } catch (error) {
-        logger.error("getLiveMatchInfo error: " + error.message);
-        res.send({ result: "fail", message: error.message });
-    }
+    try {
+        const response = await axios.post(url, data, { headers });
+        res.send({ result: "success", data: response.data });
+    } catch (error) {
+        logger.error("getLiveMatchInfo error: " + error.message);
+        res.send({ result: "fail", message: error.message });
+    }
 };
 
 exports.inqMainGameInfo = async function (req, res) {
-    console.log("inqMainGameInfo : " + JSON.stringify(req.body));
-    const url = 'https://www.betman.co.kr/matchinfo/inqMainGameInfo.do';
-    const headers = {
-        'Content-Type': 'application/json',
-    };
-    const data = {
-        "_sbmInfo": {
-            "_sbmInfo": {
-                "debugMode": "false"
-            }
-        }
-    }
+    console.log("inqMainGameInfo : " + JSON.stringify(req.body));
+    const url = 'https://www.betman.co.kr/matchinfo/inqMainGameInfo.do';
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+    const data = {
+        "_sbmInfo": {
+            "_sbmInfo": {
+                "debugMode": "false"
+            }
+        }
+    }
 
-    try {
-        const response = await axios.post(url, data, { headers });
-        res.send({ result: "success", data: response.data });
-    } catch (error) {
-        logger.error("inqMainGameInfo error: " + error.message);
-        res.send({ result: "fail", message: error.message });
-    }
+    try {
+        const response = await axios.post(url, data, { headers });
+        res.send({ result: "success", data: response.data });
+    } catch (error) {
+        logger.error("inqMainGameInfo error: " + error.message);
+        res.send({ result: "fail", message: error.message });
+    }
 }
 
 //점수 저장
 exports.saveScore = async function (req,res){
-    console.log("saveScore : "+JSON.stringify(req.body));
-    req.body.createTm = moment().format("YYYY-MM-DD HH:mm:ss");
-    await CRUD.insertData("wallballshot",req.body); // MongoDB 사용 유지
-    let result = await CRUD.searchData("getScore","wallballshot");
-    console.log("result : "+JSON.stringify(result));
-    res.send({op:"saveScore",result:result});
+    console.log("saveScore : "+JSON.stringify(req.body));
+    req.body.createTm = moment().format("YYYY-MM-DD HH:mm:ss");
+    await CRUD.insertData("wallballshot",req.body); // MongoDB 사용 유지
+    let result = await CRUD.searchData("getScore","wallballshot");
+    console.log("result : "+JSON.stringify(result));
+    res.send({op:"saveScore",result:result});
 }
 
 /**
@@ -275,161 +275,222 @@ exports.generateChat = async function(req,res) {
 
 //제미나이 서치 스트리밍 테스트
 exports.generate = async function(req,res) {
-    try{
-        let prompt = req.body.prompt;
+    try{
+        let prompt = req.body.prompt;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"}); // 모델명 최신으로 변경 권장
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Transfer-Encoding', 'chunked');
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"}); // 모델명 최신으로 변경 권장
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Transfer-Encoding', 'chunked');
 
-        const result = await model.generateContentStream(prompt);
+        const result = await model.generateContentStream(prompt);
 
-        for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            res.write(chunkText); // 받은 텍스트 조각을 클라이언트로 즉시 전송
-        }
+        for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            res.write(chunkText); // 받은 텍스트 조각을 클라이언트로 즉시 전송
+        }
 
-        res.end(); // 스트림이 끝났음을 알림
-    } catch(e) {
-        logger.error("generate (stream) error: " + e.message); // 오류 로깅 추가
-        // 스트리밍 중 오류 발생 시 클라이언트에 오류 메시지 전송 시도 (이미 헤더가 전송되었을 수 있음)
-        if (!res.headersSent) {
-            res.status(500).send({result:"fail",message:e.message});
-        } else {
-            res.end(); // 스트림 강제 종료
-        }
-    }
+        res.end(); // 스트림이 끝났음을 알림
+    } catch(e) {
+        logger.error("generate (stream) error: " + e.message); // 오류 로깅 추가
+        // 스트리밍 중 오류 발생 시 클라이언트에 오류 메시지 전송 시도 (이미 헤더가 전송되었을 수 있음)
+        if (!res.headersSent) {
+            res.status(500).send({result:"fail",message:e.message});
+        } else {
+            res.end(); // 스트림 강제 종료
+        }
+    }
 }
 
 //오늘의 운세 생성 (Firebase Firestore 사용)
+// 랜덤 요소를 뽑기 위한 헬퍼 함수
+function pickRandomItems(arr, count) {
+    const shuffled = arr.sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, count);
+}
+
 exports.getDailyFortune = async function(req, res) {
-    try {
-		let agenda = req.body ? req.body.agenda : null;
-		let prompt = "";
-		let document = "";
-        if (!agenda) {
-            prompt = "오늘의 운세 30문장을 JSON 배열 형태로 출력해줘. 금전, 일, 인간관계, 건강에 대한 것을 적절히 섞어서 만들어줘. `fortunes`라는 키를 사용하고, 값은 30개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
-			document = "latest";
-        }else if(agenda === "연애"){
-            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 10개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
-			document = "love";
-        }
+    // 1. 운세를 다채롭게 만들 '랜덤 재료' 준비 (풀을 넓게 잡을수록 좋습니다)
+    const materials = {
+        luckyItems: ["오래된 동전", "구겨진 영수증", "빨간 우산", "이어폰", "작은 거울", "민트색 사탕", "낡은 열쇠", "종이비행기", "필름 카메라", "선글라스"],
+        places: ["편의점 앞", "엘리베이터 거울 앞", "횡단보도", "퇴근길 버스 맨 뒷자리", "오래된 서점", "카페 창가", "공원 벤치", "지하철 스크린도어 앞"],
+        actions: ["하늘을 한 번 올려다보세요", "평소에 듣지 않던 장르의 노래를 들어보세요", "주머니를 정리해보세요", "따뜻한 차를 한 잔 마시세요", "가방 속 짐을 줄여보세요"],
+        colors: ["버건디", "머스타드", "딥그린", "네이비", "차콜", "파스텔 핑크"]
+    };
 
-        const modelName = "gpt-5-nano";
-        const promptMessages = [
-            { role: "system", content: "You must output a valid JSON object." },
-            { role: "user", content: prompt }
-        ];
+    // 2. '오늘의 재료' 랜덤 선정 (매 요청마다 바뀜)
+    const selectedItems = pickRandomItems(materials.luckyItems, 3);
+    const selectedPlaces = pickRandomItems(materials.places, 2);
+    const selectedAction = pickRandomItems(materials.actions, 1)[0];
+    const selectedColor = pickRandomItems(materials.colors, 1)[0];
 
-        const chatCompletion = await openai.chat.completions.create({
-            model: modelName,
-            messages: promptMessages,
-            response_format: { type: "json_object" }
-        });
+    try {
+        let agenda = req.body ? req.body.agenda : null;
+        let prompt = "";
+        let document = "";
 
-        const responseText = chatCompletion.choices[0].message.content;
-        let newFortunes = [];
+        // 3. 프롬프트 구성 (페르소나 부여 + 랜덤 재료 주입)
+        const baseSystemPrompt = `
+            Role: 당신은 30년 경력의 신비롭고 통찰력 있는 점술가입니다.
+            Tone: 직설적인 조언보다는 은유적이고 신비로운 문체를 사용하세요. (~할 것이네, ~하게나 등)
+            Constraint: '오늘은 운이 좋습니다' 같은 뻔하고 추상적인 말은 절대 금지입니다. 구체적인 사물, 행동, 상황을 묘사하세요.
+        `;
 
-        try {
-            const parsedResponse = JSON.parse(responseText);
-            if (!parsedResponse || !Array.isArray(parsedResponse.fortunes)) {
-                 throw new Error("API 응답에서 'fortunes' 배열을 찾을 수 없습니다.");
-            }
-            newFortunes = parsedResponse.fortunes;
-        } catch (parseError) {
-            logger.error("JSON 파싱 오류:", responseText, parseError);
-            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
-        }
+        // 오늘의 랜덤 키워드 컨텍스트 생성
+        const randomContext = `
+            [오늘의 영감 키워드]
+            이 키워드들을 운세 문장 작성에 적극적으로 활용하거나 비유의 소재로 쓰세요:
+            - 행운의 물건/소재: ${selectedItems.join(", ")}
+            - 장소: ${selectedPlaces.join(", ")}
+            - 추천 행동: ${selectedAction}
+            - 색상: ${selectedColor}
+        `;
 
-        newFortunes = newFortunes.map(fortune => {
-            if (typeof fortune === 'string' && (fortune.startsWith("오늘은") || fortune.startsWith("오늘의"))) {
-                 return fortune.replace(/^오늘은\s*/, '').replace(/^오늘의\s*/, '');
-            }
-            return fortune;
-        }).filter(fortune => typeof fortune === 'string'); // 문자열 타입만 필터링
+        if (!agenda) {
+            prompt = `
+                ${randomContext}
+                
+                위 키워드들을 적절히 섞거나 변형하여, '오늘의 운세' 30문장을 작성해주세요.
+                금전, 일, 인간관계, 건강 운을 적절히 섞되, 각 문장은 서로 다른 구체적인 상황을 묘사해야 합니다.
+                
+                출력 형식:
+                JSON 객체 내의 \`fortunes\` 키에 30개의 문자열 배열로 반환하세요.
+                다른 말은 절대 하지 말고 JSON 객체만 반환하세요.
+            `;
+            document = "latest";
+        } else if (agenda === "연애") {
+            prompt = `
+                ${randomContext}
 
-        if (newFortunes.length === 0) {
-             throw new Error("API로부터 유효한 운세 데이터를 받지 못했습니다.");
-        }
+                위 키워드들의 분위기를 녹여내어, '오늘의 연애 운세' 10문장을 작성해주세요.
+                설렘, 다툼, 화해, 인연 등 다양한 상황을 구체적으로 묘사하세요.
 
-        // Firestore에 저장 (단일 문서 방식)
-        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
-        await fortuneRef.set({
-            fortunes: newFortunes,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp() // 업데이트 시간 기록
-        });
+                출력 형식:
+                JSON 객체 내의 \`fortunes\` 키에 10개의 문자열 배열로 반환하세요.
+                다른 말은 절대 하지 말고 JSON 객체만 반환하세요.
+            `;
+            document = "love";
+        }
 
-        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
+        const modelName = "gpt-5-nano"; // 기존 모델명 유지
+        const promptMessages = [
+            { role: "system", content: "You must output a valid JSON object. " + baseSystemPrompt },
+            { role: "user", content: prompt }
+        ];
 
-        // res가 null일 수 있는 경우 (스케줄링 등) 처리
-        if (res) {
-            res.send({
-                result: "success",
-                op: "getDailyFortune",
-                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
-                newFortunesList: newFortunes
-            });
-        }
+        const chatCompletion = await openai.chat.completions.create({
+            model: modelName,
+            messages: promptMessages,
+            response_format: { type: "json_object" }
+        });
 
-    } catch (e) {
-        logger.error("getDailyFortune 오류:", e);
-        // res가 null일 수 있는 경우 처리
-        if (res) {
-            res.send({ result: "fail", message: e.message });
-        }
-    }
+        const responseText = chatCompletion.choices[0].message.content;
+        let newFortunes = [];
+
+        try {
+            const parsedResponse = JSON.parse(responseText);
+            if (!parsedResponse || !Array.isArray(parsedResponse.fortunes)) {
+                throw new Error("API 응답에서 'fortunes' 배열을 찾을 수 없습니다.");
+            }
+            newFortunes = parsedResponse.fortunes;
+        } catch (parseError) {
+            logger.error("JSON 파싱 오류:", responseText, parseError);
+            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
+        }
+
+        // 문장 다듬기 (기존 로직 유지)
+        newFortunes = newFortunes.map(fortune => {
+            if (typeof fortune === 'string') {
+                // "오늘은", "오늘의" 같은 시작 문구 제거하여 더 깔끔하게
+                return fortune.replace(/^(오늘은|오늘의)\s*/, '');
+            }
+            return fortune;
+        }).filter(fortune => typeof fortune === 'string');
+
+        if (newFortunes.length === 0) {
+            throw new Error("API로부터 유효한 운세 데이터를 받지 못했습니다.");
+        }
+
+        // Firestore 저장 (기존 로직 유지)
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
+        await fortuneRef.set({
+            fortunes: newFortunes,
+            theme: { // (선택사항) 오늘 사용된 테마도 같이 저장해두면 나중에 보여주기 좋습니다.
+                items: selectedItems,
+                color: selectedColor,
+                place: selectedPlaces
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
+
+        if (res) {
+            res.send({
+                result: "success",
+                op: "getDailyFortune",
+                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
+                newFortunesList: newFortunes
+            });
+        }
+
+    } catch (e) {
+        logger.error("getDailyFortune 오류:", e);
+        if (res) {
+            res.send({ result: "fail", message: e.message });
+        }
+    }
 };
 
 //오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
 exports.getOneFortune = async function(req, res) {
-    try {
+    try {
 		let agenda = req.body ? req.body.agenda : null;
-	    let document = "";
-        if (!agenda) {
+	    let document = "";
+        if (!agenda) {
 			document = "latest";
-        }else if(agenda === "연애"){
+        }else if(agenda === "연애"){
 			document = "love";
-        }
-        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
-        const docSnap = await fortuneRef.get();
+        }
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
+        const docSnap = await fortuneRef.get();
 
-        if (!docSnap.exists) {
-            logger.warn(`Firestore에 'dailyFortunes/${document || 'latest'}' 문서가 없습니다.`);
-             // 문서가 없을 경우, getDailyFortune을 호출하여 새로 생성 시도
-             await exports.getDailyFortune(req, null); // req, res 없이 내부 호출
-             // 잠시 대기 후 다시 시도 (선택적)
-             await new Promise(resolve => setTimeout(resolve, 1000));
-             const newDocSnap = await fortuneRef.get();
-             if (!newDocSnap.exists) {
-                 throw new Error("운세 문서를 생성하지 못했습니다.");
-             }
-             docSnap = newDocSnap; // 새로 가져온 스냅샷 사용
-        }
+        if (!docSnap.exists) {
+            logger.warn(`Firestore에 'dailyFortunes/${document || 'latest'}' 문서가 없습니다.`);
+             // 문서가 없을 경우, getDailyFortune을 호출하여 새로 생성 시도
+             await exports.getDailyFortune(req, null); // req, res 없이 내부 호출
+             // 잠시 대기 후 다시 시도 (선택적)
+             await new Promise(resolve => setTimeout(resolve, 1000));
+             const newDocSnap = await fortuneRef.get();
+             if (!newDocSnap.exists) {
+                 throw new Error("운세 문서를 생성하지 못했습니다.");
+             }
+             docSnap = newDocSnap; // 새로 가져온 스냅샷 사용
+        }
 
-        const data = docSnap.data();
-        const fortunes = data.fortunes;
+        const data = docSnap.data();
+        const fortunes = data.fortunes;
 
-        if (!Array.isArray(fortunes) || fortunes.length === 0) {
-            logger.warn("'fortunes' 배열이 비어있거나 유효하지 않습니다.");
-            // 운세 배열이 비어있을 경우, getDailyFortune을 호출하여 다시 채우기 시도
-            await exports.getDailyFortune(req, null);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const freshDocSnap = await fortuneRef.get();
-            if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
-                throw new Error("운세 데이터를 가져오지 못했습니다.");
-            }
-            fortunes = freshDocSnap.data().fortunes; // 새로 가져온 데이터 사용
-        }
+        if (!Array.isArray(fortunes) || fortunes.length === 0) {
+            logger.warn("'fortunes' 배열이 비어있거나 유효하지 않습니다.");
+            // 운세 배열이 비어있을 경우, getDailyFortune을 호출하여 다시 채우기 시도
+            await exports.getDailyFortune(req, null);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const freshDocSnap = await fortuneRef.get();
+            if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
+                throw new Error("운세 데이터를 가져오지 못했습니다.");
+            }
+            fortunes = freshDocSnap.data().fortunes; // 새로 가져온 데이터 사용
+        }
 
-        const randomIndex = Math.floor(Math.random() * fortunes.length);
-        const randomMember = fortunes[randomIndex];
+        const randomIndex = Math.floor(Math.random() * fortunes.length);
+        const randomMember = fortunes[randomIndex];
 
-        console.log(`랜덤 운세: ${randomMember}`);
-        res.send({ result: "success", fortune: randomMember });
-    } catch (e) {
-        logger.error("getOneFortune 오류:", e);
-        res.send({ result: "fail", message: e.message });
-    }
+        console.log(`랜덤 운세: ${randomMember}`);
+        res.send({ result: "success", fortune: randomMember });
+    } catch (e) {
+        logger.error("getOneFortune 오류:", e);
+        res.send({ result: "fail", message: e.message });
+    }
 };
 
 // [신규] 솔라피 알림톡 발송 함수
