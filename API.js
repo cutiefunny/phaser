@@ -311,17 +311,15 @@ function pickRandomItems(arr, count) {
 exports.getDailyFortune = async function(req, res) {
     // 1. 운세를 다채롭게 만들 '랜덤 재료' 준비 (풀을 넓게 잡을수록 좋습니다)
     const materials = {
-        luckyItems: ["오래된 동전", "구겨진 영수증", "빨간 우산", "이어폰", "작은 거울", "민트색 사탕", "낡은 열쇠", "종이비행기", "필름 카메라", "선글라스"],
-        places: ["편의점 앞", "엘리베이터 거울 앞", "횡단보도", "퇴근길 버스 맨 뒷자리", "오래된 서점", "카페 창가", "공원 벤치", "지하철 스크린도어 앞"],
-        actions: ["하늘을 한 번 올려다보세요", "평소에 듣지 않던 장르의 노래를 들어보세요", "주머니를 정리해보세요", "따뜻한 차를 한 잔 마시세요", "가방 속 짐을 줄여보세요"],
-        colors: ["버건디", "머스타드", "딥그린", "네이비", "차콜", "파스텔 핑크"]
+        luckyItems: ["건강","금전","인간관계","창의력","인내","웃음","일","미래"],
+        places: ["집", "회사", "카페", "지하철 또는 버스", "책상", "편의점"],
+        actions: ["산책", "명상", "독서", "운동", "친구에게 연락하기", "새로운 음식 시도하기", "작은 목표 세우기","감사의 말 전하기","미안하다고 말하기","도움 요청하기","칭찬하기","새로운 취미 시작하기","처음 가는 장소 방문하기"],
     };
 
     // 2. '오늘의 재료' 랜덤 선정 (매 요청마다 바뀜)
     const selectedItems = pickRandomItems(materials.luckyItems, 3);
     const selectedPlaces = pickRandomItems(materials.places, 2);
     const selectedAction = pickRandomItems(materials.actions, 1)[0];
-    const selectedColor = pickRandomItems(materials.colors, 1)[0];
 
     try {
         let agenda = req.body ? req.body.agenda : null;
@@ -331,7 +329,7 @@ exports.getDailyFortune = async function(req, res) {
         // 3. 프롬프트 구성 (페르소나 부여 + 랜덤 재료 주입)
         const baseSystemPrompt = `
             Role: 당신은 30년 경력의 신비롭고 통찰력 있는 점술가입니다.
-            Tone: 직설적인 조언보다는 은유적이고 신비로운 문체를 사용하세요. (~할 것이네, ~하게나 등)
+            Tone: 명언,철학적 스타일
             Constraint: '오늘은 운이 좋습니다' 같은 뻔하고 추상적인 말은 절대 금지입니다. 구체적인 사물, 행동, 상황을 묘사하세요.
         `;
 
@@ -339,10 +337,9 @@ exports.getDailyFortune = async function(req, res) {
         const randomContext = `
             [오늘의 영감 키워드]
             이 키워드들을 운세 문장 작성에 적극적으로 활용하거나 비유의 소재로 쓰세요:
-            - 행운의 물건/소재: ${selectedItems.join(", ")}
+            - 주제: ${selectedItems.join(", ")}
             - 장소: ${selectedPlaces.join(", ")}
             - 추천 행동: ${selectedAction}
-            - 색상: ${selectedColor}
         `;
 
         if (!agenda) {
