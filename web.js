@@ -11,8 +11,6 @@ const axios = require('axios');
 const redis = require('redis');
 const cors = require('cors'); // 💡 1. cors 패키지 불러오기
 
-//재반영을 위한 주석
-
 // 💡 2. CORS 미들웨어 설정
 const corsOptions = {
   origin: [

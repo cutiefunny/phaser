@@ -186,7 +186,7 @@ exports.saveScore = async function (req,res){
     res.send({op:"saveScore",result:result});
 }
 
-/**
+/** re
  * 제미나이 서치 (실패 시 챗지피티로 Fallback)
  * [수정됨] data 유무에 따라 프롬프트 분기 처리
  */
