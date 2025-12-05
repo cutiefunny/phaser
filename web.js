@@ -25,7 +25,8 @@ const corsOptions = {
     'http://202.20.84.65:10001/',
     'http://202.20.84.65:10000/',
     'https://musclecat-studio.com',
-    'https://stock-info-smoky.vercel.app'
+    'https://stock-info-smoky.vercel.app',
+    'https://eink-news.vercel.app'
   ],
   optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };

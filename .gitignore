@@ -5,3 +5,5 @@ serviceAccountKey.json
 
 *.log
 *.gz
+node_modules/
+package-lock.json
