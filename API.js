@@ -12,6 +12,12 @@ const fs = require('fs');
 const { OpenAI } = require("openai");
 const openai = new OpenAI(); // API 키는 환경 변수 OPENAI_API_KEY 에서 자동으로 로드됩니다.
 
+// [신규] 뉴스 수집 및 정제를 위한 패키지
+const Parser = require('rss-parser');
+const parser = new Parser();
+const { JSDOM } = require('jsdom');
+const { Readability } = require('@mozilla/readability');
+
 // Solapi SDK 추가
 const { SolapiMessageService } = require("solapi");
 // Solapi 메시지 서비스 인스턴스 생성
@@ -22,11 +28,11 @@ const admin = require('firebase-admin');
 // 서비스 계정 키 파일 경로 (실제 경로로 수정 필요)
 const serviceAccount = require('./serviceAccountKey.json'); // <<--- 이 파일 경로를 확인해주세요.
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  // .env 파일의 projectId 사용 (환경 변수 이름 확인 필요)
-  // projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
-});
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+    });
+}
 
 const db = admin.firestore();
 
@@ -80,7 +86,7 @@ async function _callOpenAI(prompt) {
     const chatCompletion = await openai.chat.completions.create({
         model: modelName,
         messages: promptMessages,
-        max_tokens: 1000, // [수정됨] 'max_completion_tokens' -> 'max_tokens'
+        max_completion_tokens: 1000, 
     });
 
     const responseText = chatCompletion.choices[0].message.content;
@@ -122,10 +128,6 @@ exports.getSearchMusclecat = async function(req,res) {
         // res.send({ result: "success" }); // 예시: 성공 응답 (필요시 추가)
     } catch (error) {
         logger.error("getSearchMusclecat error: " + error.message);
-        // res가 정의되지 않았으므로 오류 응답 로직은 제거하거나 필요에 맞게 수정합니다.
-        // res.send({ result: "fail", message: error.message }); // 예시: 오류 응답 (필요시 추가)
-        // 스케줄링 작업 등에서는 오류를 throw하여 상위에서 처리하도록 할 수 있습니다.
-        // throw error;
     }
 }
 
@@ -433,12 +435,12 @@ exports.getDailyFortune = async function(req, res) {
 //오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
 exports.getOneFortune = async function(req, res) {
     try {
-		let agenda = req.body ? req.body.agenda : null;
-	    let document = "";
+        let agenda = req.body ? req.body.agenda : null;
+        let document = "";
         if (!agenda) {
-			document = "latest";
+            document = "latest";
         }else if(agenda === "연애"){
-			document = "love";
+            document = "love";
         }
         const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
         const docSnap = await fortuneRef.get();
@@ -528,99 +530,418 @@ exports.sendKakaotalk = async function(req, res) {
 
 // [수정] 운세 발송 (데이터 취합 및 Solapi 대량 발송)
 exports.sendFortune = async function(req, res) {
-	console.log("sendFortune: Processing fortune sending...");
-	try {
-		// --- 1. 폰번호 수집 (luckMembers) ---
+    console.log("sendFortune: Processing fortune sending...");
+    try {
+        // --- 1. 폰번호 수집 (luckMembers) ---
         
         // [TEST] Firestore 조회 대신 Mock Data 사용
-		const snapshot = await db.collection('luckMembers').get();
-		const phoneNumbers = [];
-		snapshot.forEach(doc => {
-			const data = doc.data();
-			if (data.phone) {
-				phoneNumbers.push(data.phone);
-			} else {
-				logger.warn(`Document ${doc.id} is missing 'phone' field.`);
-			}
-		});
+        const snapshot = await db.collection('luckMembers').get();
+        const phoneNumbers = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.phone) {
+                phoneNumbers.push(data.phone);
+            } else {
+                logger.warn(`Document ${doc.id} is missing 'phone' field.`);
+            }
+        });
         // const phoneNumbers = ["01083151379", "01085288954"]; // 💡 MOCK DATA
-		// console.log("Phone numbers (MOCK DATA):", phoneNumbers); 
+        // console.log("Phone numbers (MOCK DATA):", phoneNumbers); 
 
-		// --- 2. 운세 데이터 수집 (dailyFortunes) ---
-		console.log("Fetching fortunes from dailyFortunes/latest...");
-		let docSnap = await db.collection('dailyFortunes').doc('latest').get();
+        // --- 2. 운세 데이터 수집 (dailyFortunes) ---
+        console.log("Fetching fortunes from dailyFortunes/latest...");
+        let docSnap = await db.collection('dailyFortunes').doc('latest').get();
 
-		if (!docSnap.exists) {
-			logger.warn("sendFortune: 'dailyFortunes/latest' document not found. Generating...");
-			await exports.getDailyFortune(null, null); // 운세 생성
-			await new Promise(resolve => setTimeout(resolve, 1500)); // 생성 대기
-			const newDocSnap = await db.collection('dailyFortunes').doc('latest').get();
-			if (!newDocSnap.exists) {
-				throw new Error("운세 문서를 찾을 수 없습니다. (dailyFortunes/latest)");
-			}
-			docSnap = newDocSnap; 
-		}
+        if (!docSnap.exists) {
+            logger.warn("sendFortune: 'dailyFortunes/latest' document not found. Generating...");
+            await exports.getDailyFortune(null, null); // 운세 생성
+            await new Promise(resolve => setTimeout(resolve, 1500)); // 생성 대기
+            const newDocSnap = await db.collection('dailyFortunes').doc('latest').get();
+            if (!newDocSnap.exists) {
+                throw new Error("운세 문서를 찾을 수 없습니다. (dailyFortunes/latest)");
+            }
+            docSnap = newDocSnap; 
+        }
 
-		const fortuneData = docSnap.data();
-		let fortunes = fortuneData.fortunes;
+        const fortuneData = docSnap.data();
+        let fortunes = fortuneData.fortunes;
 
-		if (!Array.isArray(fortunes) || fortunes.length === 0) {
-			logger.warn("sendFortune: 'fortunes' array is empty. Regenerating...");
-			await exports.getDailyFortune(null, null); // 운세 재생성
-			await new Promise(resolve => setTimeout(resolve, 1500)); // 생성 대기
-			const freshDocSnap = await db.collection('dailyFortunes').doc('latest').get();
-			if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
-				throw new Error("운세 데이터를 가져오지 못했습니다.");
-			}
-			fortunes = freshDocSnap.data().fortunes;
-		}
-		
-		// --- 3. 폰번호와 랜덤 운세 매칭 (JSON 배열 생성) ---
-		const fortuneMappings = phoneNumbers.map(phone => {
-			const randomIndex = Math.floor(Math.random() * fortunes.length);
-			const randomFortune = fortunes[randomIndex];
-			return { phone: phone, fortune: randomFortune };
-		});
-		console.log("Fortune Mappings (JSON Array):", fortuneMappings); 
+        if (!Array.isArray(fortunes) || fortunes.length === 0) {
+            logger.warn("sendFortune: 'fortunes' array is empty. Regenerating...");
+            await exports.getDailyFortune(null, null); // 운세 재생성
+            await new Promise(resolve => setTimeout(resolve, 1500)); // 생성 대기
+            const freshDocSnap = await db.collection('dailyFortunes').doc('latest').get();
+            if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
+                throw new Error("운세 데이터를 가져오지 못했습니다.");
+            }
+            fortunes = freshDocSnap.data().fortunes;
+        }
+        
+        // --- 3. 폰번호와 랜덤 운세 매칭 (JSON 배열 생성) ---
+        const fortuneMappings = phoneNumbers.map(phone => {
+            const randomIndex = Math.floor(Math.random() * fortunes.length);
+            const randomFortune = fortunes[randomIndex];
+            return { phone: phone, fortune: randomFortune };
+        });
+        console.log("Fortune Mappings (JSON Array):", fortuneMappings); 
 
-		// --- 4. Solapi 대량 발송 (send) ---
-		if (fortuneMappings.length === 0) {
-			logger.warn("sendFortune: No phone numbers found, nothing to send.");
-			return res.send({ result: "success", op: "sendFortune", count: 0, message: "No recipients found." });
-		}
+        // --- 4. Solapi 대량 발송 (send) ---
+        if (fortuneMappings.length === 0) {
+            logger.warn("sendFortune: No phone numbers found, nothing to send.");
+            return res.send({ result: "success", op: "sendFortune", count: 0, message: "No recipients found." });
+        }
 
-		// 'send'에 맞게 메시지 객체의 '배열' 형식으로 변환
-		const messagesToSend = fortuneMappings.map(item => {
-			return {
-				to: item.phone,
-				from: process.env.SOLAPI_SENDER_NUMBER,
-				text: "오늘의 운세가 도착했어요!", // 알림톡 실패 시 대체 문자
-				kakaoOptions: {
-					pfId: "KA01PF251023155453466zUYSFWha1ci",
-					templateId: "KA01TP251023175627378FUOi9NrdvXQ",
-					variables: {
-						"운세": item.fortune // 템플릿 변수 #{운세}에 매칭
-					}
-				}
-			};
-		});
+        // 'send'에 맞게 메시지 객체의 '배열' 형식으로 변환
+        const messagesToSend = fortuneMappings.map(item => {
+            return {
+                to: item.phone,
+                from: process.env.SOLAPI_SENDER_NUMBER,
+                text: "오늘의 운세가 도착했어요!", // 알림톡 실패 시 대체 문자
+                kakaoOptions: {
+                    pfId: "KA01PF251023155453466zUYSFWha1ci",
+                    templateId: "KA01TP251023175627378FUOi9NrdvXQ",
+                    variables: {
+                        "운세": item.fortune // 템플릿 변수 #{운세}에 매칭
+                    }
+                }
+            };
+        });
 
-		console.log(`Attempting to send ${messagesToSend.length} Alimtalks via send()...`);
-		
-		// [FIX] 'sendMany' -> 'send'. SDK는 대량 발송 시 배열을 인자로 받습니다.
-		const response = await messageService.send(messagesToSend);
+        console.log(`Attempting to send ${messagesToSend.length} Alimtalks via send()...`);
+        
+        // [FIX] 'sendMany' -> 'send'. SDK는 대량 발송 시 배열을 인자로 받습니다.
+        const response = await messageService.send(messagesToSend);
 
-		console.log("Solapi send response: ", JSON.stringify(response));
+        console.log("Solapi send response: ", JSON.stringify(response));
 
-		res.send({
-			result: "success",
-			op: "sendFortune",
-			count: messagesToSend.length,
-			solapiResponse: response // Solapi 발송 결과 응답
-		});
+        res.send({
+            result: "success",
+            op: "sendFortune",
+            count: messagesToSend.length,
+            solapiResponse: response // Solapi 발송 결과 응답
+        });
 
-	} catch (e) {
-		logger.error("sendFortune error: " + e.message); 
-		res.send({ result: "fail", message: e.message });
-	}
+    } catch (e) {
+        logger.error("sendFortune error: " + e.message); 
+        res.send({ result: "fail", message: e.message });
+    }
 }
+
+// [헬퍼] 두 문자열의 유사도 측정 (Dice Coefficient, 0~1)
+// 제목이 60% 이상 비슷하면 중복으로 간주하기 위함
+function getSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    
+    // 2글자씩 쪼개서(Bigram) 집합 생성
+    const bigrams = (str) => {
+        const result = new Set();
+        for (let i = 0; i < str.length - 1; i++) {
+            result.add(str.substring(i, i + 2));
+        }
+        return result;
+    };
+
+    const set1 = bigrams(str1.replace(/\s+/g, '')); // 공백 제거 후 비교
+    const set2 = bigrams(str2.replace(/\s+/g, ''));
+
+    if (set1.size === 0 || set2.size === 0) return 0.0;
+
+    let intersection = 0;
+    set1.forEach(item => {
+        if (set2.has(item)) intersection++;
+    });
+
+    return (2.0 * intersection) / (set1.size + set2.size);
+}
+
+// [헬퍼 1] 두 문자열의 유사도 측정 (Dice Coefficient, 전체적 문장 유사도)
+function getSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    const s1 = str1.replace(/\s+/g, '').toLowerCase();
+    const s2 = str2.replace(/\s+/g, '').toLowerCase();
+    const bigrams = (str) => {
+        const result = new Set();
+        for (let i = 0; i < str.length - 1; i++) {
+            result.add(str.substring(i, i + 2));
+        }
+        return result;
+    };
+    const set1 = bigrams(s1);
+    const set2 = bigrams(s2);
+    if (set1.size === 0 || set2.size === 0) return 0.0;
+    let intersection = 0;
+    set1.forEach(item => { if (set2.has(item)) intersection++; });
+    return (2.0 * intersection) / (set1.size + set2.size);
+}
+
+// [헬퍼 2] 연속된 문자 겹침 확인 (New! 키워드 중복 방지)
+// "넷플릭스 주가" vs "넷플릭스 신작" -> "넷플릭"(3글자)이 겹치므로 true 반환
+function checkKeywordOverlap(str1, str2, length = 3) {
+    if (!str1 || !str2) return false;
+    
+    // 공백 제거 및 소문자화
+    const s1 = str1.replace(/\s+/g, '').toLowerCase();
+    const s2 = str2.replace(/\s+/g, '').toLowerCase();
+
+    if (s1.length < length || s2.length < length) return false;
+
+    // s1을 3글자씩 잘라서 s2에 포함되어 있는지 확인 (Sliding Window)
+    for (let i = 0; i <= s1.length - length; i++) {
+        const chunk = s1.substring(i, i + length);
+        if (s2.includes(chunk)) {
+            return true; // 3글자 연속 겹침 발견
+        }
+    }
+    return false;
+}
+
+// [헬퍼 1] 문장 유사도 측정 (Dice Coefficient)
+function getSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    const s1 = str1.replace(/\s+/g, '').toLowerCase();
+    const s2 = str2.replace(/\s+/g, '').toLowerCase();
+    const bigrams = (str) => {
+        const result = new Set();
+        for (let i = 0; i < str.length - 1; i++) {
+            result.add(str.substring(i, i + 2));
+        }
+        return result;
+    };
+    const set1 = bigrams(s1);
+    const set2 = bigrams(s2);
+    if (set1.size === 0 || set2.size === 0) return 0.0;
+    let intersection = 0;
+    set1.forEach(item => { if (set2.has(item)) intersection++; });
+    return (2.0 * intersection) / (set1.size + set2.size);
+}
+
+// [헬퍼 2] 3글자 이상 연속 키워드 겹침 확인 (공백 제거 후 비교)
+function checkKeywordOverlap(str1, str2, length = 3) {
+    if (!str1 || !str2) return false;
+    const s1 = str1.replace(/\s+/g, '').toLowerCase();
+    const s2 = str2.replace(/\s+/g, '').toLowerCase();
+    if (s1.length < length || s2.length < length) return false;
+    for (let i = 0; i <= s1.length - length; i++) {
+        const chunk = s1.substring(i, i + length);
+        if (s2.includes(chunk)) return true;
+    }
+    return false;
+}
+
+// [수정] 뉴스 수집 (실시간 누적 배열 필터링 적용)
+exports.getNews = async function(req, res) {
+    const COLLECTION_NAME = 'eink-news';
+    
+    const SOURCES = [
+        // { type: 'naver', category: 'economy', sid: '101', name: '네이버경제' },
+        { type: 'naver', category: 'society', sid: '102', name: '네이버사회' },
+        // { type: 'naver', category: 'tech',    sid: '105', name: '네이버IT' }
+    ];
+
+    logger.info(`[getNews] Starting news collection with Accumulator Array Filtering...`);
+
+    try {
+        // --- 0. 누적 배열(Accumulator) 초기화 ---
+        const cutoffDate = admin.firestore.Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+        
+        // 1) 24시간 지난 뉴스 삭제
+        const oldNewsQuery = await db.collection(COLLECTION_NAME)
+            .where('createdAt', '<', cutoffDate)
+            .get();
+
+        if (!oldNewsQuery.empty) {
+            const batch = db.batch();
+            oldNewsQuery.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            logger.info(`[getNews] Cleaned up ${oldNewsQuery.size} old items.`);
+        }
+
+        // 2) [핵심] 현재 DB에 있는 모든 기사 제목을 배열에 로드
+        // 이 배열(existingTitles)은 새로운 기사가 추가될 때마다 계속 커집니다.
+        const activeNewsSnap = await db.collection(COLLECTION_NAME).select('title').get();
+        let existingTitles = activeNewsSnap.docs.map(doc => doc.data().title);
+
+        logger.info(`[getNews] Initial loaded titles: ${existingTitles.length}`);
+
+        let totalProcessed = 0;
+
+        // --- 1. 소스별 수집 루프 ---
+        for (const source of SOURCES) {
+            try {
+                let itemsToProcess = [];
+
+                // 소스별 기사 리스트 가져오기 (제목, 링크만 먼저 확보)
+                if (source.type === 'naver') {
+                    const naverUrl = `https://news.naver.com/main/list.naver?mode=LSD&mid=sec&sid1=${source.sid}`;
+                    const response = await axios.get(naverUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    const $ = cheerio.load(response.data);
+                    $('.list_body ul li').slice(0, 5).each((i, elem) => {
+                        const linkTag = $(elem).find('dl dt a').first();
+                        const href = linkTag.attr('href');
+                        const title = linkTag.text().trim() || $(elem).find('dl dt:not(.photo) a').text().trim();
+                        if (href && title) itemsToProcess.push({ title, link: href, isoDate: new Date().toISOString() });
+                    });
+                } else if (source.type === 'rss') {
+                    const feed = await parser.parseURL(source.url);
+                    itemsToProcess = feed.items.slice(0, 5);
+                }
+
+                // --- 2. 개별 기사 처리 루프 ---
+                for (const item of itemsToProcess) {
+                    
+                    // [Step 1] URL 중복 체크 (DB 쿼리)
+                    const checkQuery = await db.collection(COLLECTION_NAME).where('originalLink', '==', item.link).get();
+                    if (!checkQuery.empty) continue;
+
+                    // [Step 2] 제목 필터링 (누적 배열과 비교)
+                    // existingTitles 배열을 순회하며 '유사도' 또는 '3글자 겹침' 확인
+                    const conflictTitle = existingTitles.find(savedTitle => {
+                        // 1. 문장 유사도가 60% 이상인가?
+                        if (getSimilarity(item.title, savedTitle) > 0.6) return true;
+                        // 2. 3글자 이상 키워드가 겹치는가? (예: 넷플릭스)
+                        if (checkKeywordOverlap(item.title, savedTitle, 3)) return true;
+                        return false;
+                    });
+                    
+                    if (conflictTitle) {
+                        logger.warn(`[getNews] Skip: "${item.title}" (Conflict with: "${conflictTitle}")`);
+                        continue; // 배열에 걸리면 즉시 스킵 (본문 요청 X, LLM 요청 X)
+                    }
+
+                    // [Step 3] 본문 추출
+                    const response = await axios.get(item.link, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 5000 });
+                    const dom = new JSDOM(response.data, { url: item.link });
+                    const reader = new Readability(dom.window.document);
+                    const article = reader.parse();
+                    if (!article || !article.textContent) continue;
+
+                    // [Step 4] LLM 요약 및 정치 필터링
+                    let systemInstruction = "";
+                    if (source.category === 'society') {
+                        systemInstruction = `
+                            [Critical Constraint]:
+                            If this article is primarily about Politics (parties, elections, president, parliament), 
+                            output ONLY "SKIP_POLITICS".
+                        `;
+                    }
+
+                    const summaryPrompt = `
+                        다음 뉴스 기사를 E-ink용으로 '500자 이내로 요약' 해주세요.
+                        ${systemInstruction}
+                        [제목]: ${article.title}
+                        [본문]: ${article.textContent.substring(0, 3000)}
+
+                        요구사항:
+                        1. 특수문자 금지.
+                        2. 정치 기사면 "SKIP_POLITICS".
+                        3. 한국어로 간결하게 작성.
+                    `;
+
+                    let summaryText = "";
+                    try {
+                        summaryText = await _callGemini(summaryPrompt);
+                    } catch (e) {
+                        summaryText = await _callOpenAI(summaryPrompt);
+                    }
+                    summaryText = summaryText.trim();
+
+                    if (summaryText.includes("SKIP_POLITICS")) {
+                        logger.info(`[getNews] Filtered Political Article: ${article.title}`);
+                        continue;
+                    }
+
+                    // [Step 5] DB 저장
+                    await db.collection(COLLECTION_NAME).add({
+                        category: source.category,
+                        sourceName: source.name,
+                        title: article.title,
+                        summary: summaryText,
+                        originalLink: item.link,
+                        publishedAt: item.isoDate ? new Date(item.isoDate) : new Date(),
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // [Step 6] ★★★ 누적 배열에 추가 (Accumulate) ★★★
+                    // 이제 이 기사 제목도 필터링 장벽(Barrier)에 포함됩니다.
+                    // 다음 루프의 기사가 "넷플릭스"를 포함하면 여기서 막힙니다.
+                    existingTitles.push(article.title);
+
+                    totalProcessed++;
+                    logger.info(`[getNews] Saved & Added to Filter: ${article.title}`);
+                    await new Promise(r => setTimeout(r, 500));
+                }
+            } catch (err) {
+                logger.error(`[getNews] Source Error (${source.name}): ${err.message}`);
+            }
+        }
+
+        const msg = `[getNews] Job Finished. Total Saved: ${totalProcessed}`;
+        logger.info(msg);
+        if (res) res.send({ result: "success", message: msg, count: totalProcessed });
+
+    } catch (error) {
+        logger.error(`[getNews] Critical Error: ${error.message}`);
+        if (res) res.send({ result: "fail", message: error.message });
+    }
+};
+
+// [신규] E-ink 앱용 뉴스 조회 API
+exports.getEinkNews = async function(req, res) {
+    try {
+        // 클라이언트에서 'category'를 보내면 해당 분야만, 안 보내거나 'all'이면 전체 최신순
+        const category = req.body.category; 
+        const limit = req.body.limit ? parseInt(req.body.limit) : 20; // 기본 20개 로드
+
+        let query = db.collection('eink-news').orderBy('createdAt', 'desc');
+
+        // 카테고리 필터링 (economy, society, tech, accident)
+        if (category && category !== 'all') {
+            query = query.where('category', '==', category);
+        }
+
+        const snapshot = await query.limit(limit).get();
+
+        if (snapshot.empty) {
+            return res.send({ result: "success", data: [], message: "아직 수집된 뉴스가 없습니다." });
+        }
+
+        const newsList = snapshot.docs.map(doc => {
+            const data = doc.data();
+            
+            // [E-ink 최적화] 날짜 연산을 서버에서 미리 처리
+            // Firestore Timestamp 객체를 JS Date로 변환 후 포맷팅
+            let dateObj = new Date();
+            if (data.publishedAt && typeof data.publishedAt.toDate === 'function') {
+                dateObj = data.publishedAt.toDate();
+            } else if (data.publishedAt) {
+                dateObj = new Date(data.publishedAt);
+            }
+
+            // 오늘 날짜면 "14:30", 지난 날짜면 "05-21" 형태로 짧게 표시
+            const isToday = moment(dateObj).isSame(new Date(), "day");
+            const timeStr = isToday ? moment(dateObj).format('HH:mm') : moment(dateObj).format('MM-DD');
+
+            return {
+                id: doc.id,
+                title: data.title,
+                summary: data.summary,     // 3줄 요약 텍스트
+                category: data.category,   // economy, society...
+                source: data.sourceName,   // 네이버경제, 연합뉴스...
+                time: timeStr,             // 화면에 바로 뿌릴 시간 문자열
+                link: data.originalLink    // 원문 이동용
+            };
+        });
+
+        logger.info(`[getEinkNews] Fetched ${newsList.length} items (Category: ${category || 'all'})`);
+
+        res.send({ 
+            result: "success", 
+            count: newsList.length, 
+            data: newsList 
+        });
+
+    } catch (e) {
+        logger.error("getEinkNews error: " + e.message);
+        res.send({ result: "fail", message: e.message });
+    }
+};

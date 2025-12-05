@@ -58,6 +58,8 @@ app.post('/getDailyFortune', API.getDailyFortune);
 app.post('/getOneFortune', API.getOneFortune);
 app.post('/sendKakaotalk', API.sendKakaotalk);
 app.post('/sendFortune', API.sendFortune);
+app.post('/getNews', API.getNews);
+app.post('/getEinkNews', API.getEinkNews);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
@@ -73,6 +75,9 @@ cron.schedule('0 * * * *', async () => {
     console.log('오늘의 운세톡 발송');
     await API.sendFortune(null, null);
   }
+  // 매 시간마다 E-ink 뉴스 업데이트
+  console.log('뉴스 업데이트');
+  await API.getNews(null, null);
 });
 
 async function generateToken() {
