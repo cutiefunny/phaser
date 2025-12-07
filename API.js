@@ -822,9 +822,10 @@ exports.getNews = async function(req, res) {
                         if (getSimilarity(item.title, savedTitle) > 0.6) return true;
                         // 2. 3글자 이상 키워드가 겹치는가? (예: 넷플릭스)
                         if (checkKeywordOverlap(item.title, savedTitle, 3)) return true;
-                        // 3. 제목에 [] 등 특수문자 있으면 무조건 스킵
-                        const specialCharPattern = /[\[\]\{\}\(\)<>]/;
-                        if (specialCharPattern.test(item.title) || specialCharPattern.test(savedTitle)) return true;
+                        // 3. 제목에 '알림', '광고', '공지' 등 광고성 단어 포함 여부
+                        const lowerTitle = item.title.toLowerCase();
+                        const adKeywords = ['알림', '광고', '공지', '쿠폰', '체험단', '리뷰', '후기', '신간'];
+                        if (adKeywords.some(keyword => lowerTitle.includes(keyword))) return true;
                         return false;
                     });
                     
