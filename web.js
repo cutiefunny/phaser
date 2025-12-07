@@ -62,7 +62,6 @@ app.post('/sendFortune', API.sendFortune);
 app.post('/getNews', API.getNews);
 app.post('/getEinkNews', API.getEinkNews);
 app.post('/generate-tts', API.generateTTS);
-app.post('/getDailyBriefing', API.getDailyBriefing);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
