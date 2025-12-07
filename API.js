@@ -695,7 +695,7 @@ exports.getNews = async function(req, res) {
         { type: 'naver', category: 'society', sid: '102', name: '네이버사회' },
         
         // 2. 네이버 생활/문화 (건강, 여행, 날씨, 트렌드) - 가벼운 읽을거리
-        { type: 'naver', category: 'culture', sid: '103', name: '네이버생활' },
+        // { type: 'naver', category: 'culture', sid: '103', name: '네이버생활' },
         
         // 3. 네이버 세계 (해외 토픽)
         // { type: 'naver', category: 'world', sid: '104', name: '네이버세계' },
@@ -704,7 +704,7 @@ exports.getNews = async function(req, res) {
         // { type: 'naver', category: 'tech', sid: '105', name: '네이버IT' },
 
         // 5. [신규] Google 뉴스 RSS (대한민국 주요 뉴스 모음)
-        { type: 'rss', category: 'hot', url: 'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko', name: '구글주요뉴스' }
+        // { type: 'rss', category: 'hot', url: 'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko', name: '구글주요뉴스' }
     ];
 
     logger.info(`[getNews] Starting news collection from ${SOURCES.length} sources...`);
