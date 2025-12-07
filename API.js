@@ -59,14 +59,33 @@ redisClient.connect();
  * @throws {Error} - API 호출 실패 시 에러 발생
  */
 async function _callGemini(prompt) {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // 모델명 최신으로 변경 권장
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    if (!text) {
-        throw new Error("Gemini returned an empty response.");
+    try {
+        const apiKey = process.env.GOOGLE_API_KEY;
+        if (!apiKey) throw new Error("Google API Key is missing in .env");
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        
+        // 모델명 수정: 'gemini-1.5-flash-latest' 사용 권장
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        if (!text) throw new Error("Gemini returned empty text.");
+        
+        return text.trim();
+
+    } catch (error) {
+        // 에러 로그를 명확히 남겨서 디버깅을 돕습니다.
+        // GoogleGenerativeAIError 같은 객체 구조를 문자열로 변환
+        let errorMsg = error.message;
+        if (error.response) {
+            errorMsg = JSON.stringify(error.response);
+        }
+        logger.warn(`[_callGemini] Error: ${errorMsg}`);
+        throw error; // 상위(getNews)로 던져서 OpenAI로 넘어가게 함
     }
-    return text;
 }
 
 /**
@@ -76,24 +95,55 @@ async function _callGemini(prompt) {
  * @throws {Error} - API 호출 실패 시 에러 발생
  */
 async function _callOpenAI(prompt) {
-    const modelName = "gpt-5-nano"; // (개발자님이 사용하신 모델명)
+    try {
+        const apiKey = process.env.OPENAI_API_KEY; // 환경 변수 확인 필요
+        if (!apiKey) throw new Error("OpenAI API Key is missing in .env");
 
-    const promptMessages = [
-        { role: "system", content: "You are a helpful assistant that provides concise answers in Korean." },
-        { role: "user", content: prompt }
-    ];
-    
-    const chatCompletion = await openai.chat.completions.create({
-        model: modelName,
-        messages: promptMessages,
-        max_completion_tokens: 1000, 
-    });
+        // 최신 Chat Completion API 엔드포인트 사용
+        const url = 'https://api.openai.com/v1/chat/completions';
+        
+        const response = await axios.post(url, {
+            model: "gpt-3.5-turbo", // 비용 절감을 위해 3.5-turbo 권장 (또는 gpt-4o-mini)
+            messages: [
+                { role: "system", content: "You are a helpful news summarizer." },
+                { role: "user", content: prompt }
+            ],
+            temperature: 0.5,
+            max_tokens: 600
+        }, {
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000 // 10초 타임아웃
+        });
 
-    const responseText = chatCompletion.choices[0].message.content;
-    if (!responseText) {
-        throw new Error("OpenAI returned an empty response.");
+        // [디버깅] 실제 OpenAI가 뭘 줬는지 확인하고 싶다면 아래 주석 해제
+        // console.log("[Debug OpenAI Response]", JSON.stringify(response.data, null, 2));
+
+        // 응답 경로 파싱 (Chat API 구조)
+        if (
+            response.data && 
+            response.data.choices && 
+            response.data.choices.length > 0 && 
+            response.data.choices[0].message &&
+            response.data.choices[0].message.content
+        ) {
+            return response.data.choices[0].message.content.trim();
+        } else {
+            // 응답은 왔지만 내용이 이상한 경우
+            logger.error(`[OpenAI Error] Invalid response structure: ${JSON.stringify(response.data)}`);
+            throw new Error("OpenAI response structure is invalid (content missing).");
+        }
+
+    } catch (error) {
+        // axios 에러인 경우 상세 정보 출력
+        if (error.response) {
+            logger.error(`[OpenAI API Error] Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+            throw new Error(`OpenAI API Error: ${error.response.data.error?.message || error.message}`);
+        }
+        throw error; // 상위(getNews)로 에러 전파
     }
-    return responseText;
 }
 
 //근육고양이잡화점 네이버 검색 결과(1시간 이내)
@@ -280,7 +330,7 @@ exports.generate = async function(req,res) {
     try{
         let prompt = req.body.prompt;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash"}); // 모델명 최신으로 변경 권장
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001"}); // 모델명 최신으로 변경 권장
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.setHeader('Transfer-Encoding', 'chunked');
 
@@ -813,7 +863,11 @@ exports.getNews = async function(req, res) {
                     const dom = new JSDOM(response.data, { url: item.link });
                     const reader = new Readability(dom.window.document);
                     const article = reader.parse();
-                    if (!article || !article.textContent) continue;
+                    
+                    if (!article || !article.textContent) {
+                        logger.warn(`[getNews] Empty content for: ${item.title}`);
+                        continue;
+                    }
 
                     // [Step 4] LLM 요약 및 정치 필터링
                     let systemInstruction = "";
@@ -825,11 +879,15 @@ exports.getNews = async function(req, res) {
                         `;
                     }
 
+                    // [LOG] LLM 요청 전 본문 길이 체크 (너무 짧으면 LLM 에러 가능성 있음)
+                    const contentSnippet = article.textContent.substring(0, 3000);
+                    logger.info(`[getNews] Requesting Summary for: "${article.title}" (Content Length: ${contentSnippet.length})`);
+
                     const summaryPrompt = `
                         다음 뉴스 기사를 E-ink용으로 '500자 이내로 요약' 해주세요.
                         ${systemInstruction}
                         [제목]: ${article.title}
-                        [본문]: ${article.textContent.substring(0, 3000)}
+                        [본문]: ${contentSnippet}
 
                         요구사항:
                         1. 특수문자 금지.
@@ -839,9 +897,26 @@ exports.getNews = async function(req, res) {
 
                     let summaryText = "";
                     try {
+                        // 1차 시도: Gemini
                         summaryText = await _callGemini(summaryPrompt);
-                    } catch (e) {
-                        summaryText = await _callOpenAI(summaryPrompt);
+                        logger.info(`[getNews] Gemini Summary Success`);
+                    } catch (geminiError) {
+                        // Gemini 실패 로그 상세 출력
+                        logger.warn(`[getNews] Gemini Failed -> Switching to OpenAI. (Error: ${geminiError.message})`);
+                        
+                        try {
+                            // 2차 시도: OpenAI
+                            summaryText = await _callOpenAI(summaryPrompt);
+                            
+                            // OpenAI 응답이 비어있는지 명시적 확인
+                            if (!summaryText || summaryText.trim() === "") {
+                                throw new Error("OpenAI returned an empty string result.");
+                            }
+                            logger.info(`[getNews] OpenAI Summary Success`);
+                        } catch (openAiError) {
+                            // OpenAI 실패 시 에러 재구성하여 상위 catch로 던짐
+                            throw new Error(`OpenAI Execution Failed: ${openAiError.message}`);
+                        }
                     }
                     summaryText = summaryText.trim();
 
@@ -871,7 +946,9 @@ exports.getNews = async function(req, res) {
                     await new Promise(r => setTimeout(r, 500));
                 }
             } catch (err) {
+                // 여기서 에러 메시지와 스택 트레이스를 더 명확하게 찍음
                 logger.error(`[getNews] Source Error (${source.name}): ${err.message}`);
+                console.error(err); // 콘솔에도 상세 스택 출력
             }
         }
 
