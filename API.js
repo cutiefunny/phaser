@@ -733,17 +733,29 @@ function checkKeywordOverlap(str1, str2, length = 3) {
     return false;
 }
 
-// [수정] 뉴스 수집 (실시간 누적 배열 필터링 적용)
+// [수정] 뉴스 수집 (실시간 누적 배열 필터링 적용 + Google RSS 추가)
 exports.getNews = async function(req, res) {
     const COLLECTION_NAME = 'eink-news';
     
+    // [설정] 뉴스 소스 리스트 확장
     const SOURCES = [
-        // { type: 'naver', category: 'economy', sid: '101', name: '네이버경제' },
+        // 1. 네이버 사회 (사건, 사고) - 정치 필터링 적용됨
         { type: 'naver', category: 'society', sid: '102', name: '네이버사회' },
-        // { type: 'naver', category: 'tech',    sid: '105', name: '네이버IT' }
+        
+        // 2. 네이버 생활/문화 (건강, 여행, 날씨, 트렌드) - 가벼운 읽을거리
+        { type: 'naver', category: 'culture', sid: '103', name: '네이버생활' },
+        
+        // 3. 네이버 세계 (해외 토픽)
+        // { type: 'naver', category: 'world', sid: '104', name: '네이버세계' },
+        
+        // 4. 네이버 IT/과학 (기술, 신제품)
+        // { type: 'naver', category: 'tech', sid: '105', name: '네이버IT' },
+
+        // 5. [신규] Google 뉴스 RSS (대한민국 주요 뉴스 모음)
+        { type: 'rss', category: 'hot', url: 'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko', name: '구글주요뉴스' }
     ];
 
-    logger.info(`[getNews] Starting news collection with Accumulator Array Filtering...`);
+    logger.info(`[getNews] Starting news collection from ${SOURCES.length} sources...`);
 
     try {
         // --- 0. 누적 배열(Accumulator) 초기화 ---
@@ -787,8 +799,13 @@ exports.getNews = async function(req, res) {
                         if (href && title) itemsToProcess.push({ title, link: href, isoDate: new Date().toISOString() });
                     });
                 } else if (source.type === 'rss') {
+                    // RSS 파싱 (Google 뉴스 등)
                     const feed = await parser.parseURL(source.url);
-                    itemsToProcess = feed.items.slice(0, 5);
+                    itemsToProcess = feed.items.slice(0, 5).map(item => ({
+                        title: item.title,
+                        link: item.link,
+                        isoDate: item.isoDate || new Date().toISOString() // RSS에 날짜 없으면 현재시간
+                    }));
                 }
 
                 // --- 2. 개별 기사 처리 루프 ---
@@ -805,6 +822,9 @@ exports.getNews = async function(req, res) {
                         if (getSimilarity(item.title, savedTitle) > 0.6) return true;
                         // 2. 3글자 이상 키워드가 겹치는가? (예: 넷플릭스)
                         if (checkKeywordOverlap(item.title, savedTitle, 3)) return true;
+                        // 3. 제목에 [] 등 특수문자 있으면 무조건 스킵
+                        const specialCharPattern = /[\[\]\{\}\(\)<>]/;
+                        if (specialCharPattern.test(item.title) || specialCharPattern.test(savedTitle)) return true;
                         return false;
                     });
                     
@@ -826,7 +846,8 @@ exports.getNews = async function(req, res) {
 
                     // [Step 4] LLM 요약 및 정치 필터링
                     let systemInstruction = "";
-                    if (source.category === 'society') {
+                    if (source.category === 'society' || source.category === 'hot') {
+                        // 사회면이나 주요 뉴스(Hot)일 경우 정치 필터링 강화
                         systemInstruction = `
                             [Critical Constraint]:
                             If this article is primarily about Politics (parties, elections, president, parliament), 
@@ -847,7 +868,8 @@ exports.getNews = async function(req, res) {
                         요구사항:
                         1. 특수문자 금지.
                         2. 정치 기사면 "SKIP_POLITICS".
-                        3. 한국어로 간결하게 작성.
+                        3. 알림 또는 광고성 기사면 "SKIP_POLITICS".
+                        4. 한국어로 간결하게 작성.
                     `;
 
                     let summaryText = "";
@@ -893,7 +915,6 @@ exports.getNews = async function(req, res) {
 
                     // [Step 6] ★★★ 누적 배열에 추가 (Accumulate) ★★★
                     // 이제 이 기사 제목도 필터링 장벽(Barrier)에 포함됩니다.
-                    // 다음 루프의 기사가 "넷플릭스"를 포함하면 여기서 막힙니다.
                     existingTitles.push(article.title);
 
                     totalProcessed++;
