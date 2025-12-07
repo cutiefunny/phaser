@@ -362,132 +362,84 @@ exports.generate = async function(req,res) {
 }
 
 //오늘의 운세 생성 (Firebase Firestore 사용)
-// 랜덤 요소를 뽑기 위한 헬퍼 함수
-function pickRandomItems(arr, count) {
-    const shuffled = arr.sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, count);
-}
-
 exports.getDailyFortune = async function(req, res) {
-    // 1. 운세를 다채롭게 만들 '랜덤 재료' 준비 (풀을 넓게 잡을수록 좋습니다)
-    const materials = {
-        luckyItems: ["건강","금전","인간관계","일"],
-        actions: ["산책", "명상", "독서", "운동", "친구에게 연락하기", "새로운 음식 시도하기", "작은 목표 세우기","감사의 말 전하기","미안하다고 말하기","도움 요청하기","칭찬하기","새로운 취미 시작하기","처음 가는 장소 방문하기"],
-    };
+    try {
+		let agenda = req.body ? req.body.agenda : null;
+		let prompt = "";
+		let document = "";
+        if (!agenda) {
+            prompt = "오늘의 운세 50문장을 JSON 배열 형태로 출력해줘. 금전, 인간관계, 건강에 대한 것을 적절히 섞어서 30자 이내로 줄이되, 완결된 문장이어야 해.";
+            prompt += "단순한 덕담이나 조언이 아니라 진짜 운세처럼 좋은 상황, 나쁜 상황을 섞어서 구체적으로 작성해줘. ";
+            prompt += "`fortunes`라는 키를 사용하고, 값은 50개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+			document = "latest";
+        }else if(agenda === "연애"){
+            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 10개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+			document = "love";
+        }
 
-    // 2. '오늘의 재료' 랜덤 선정 (매 요청마다 바뀜)
-    const selectedItems = pickRandomItems(materials.luckyItems, 4);
-    const selectedAction = pickRandomItems(materials.actions, 10);
+        const modelName = "gpt-5-nano";
+        const promptMessages = [
+            { role: "system", content: "You must output a valid JSON object." },
+            { role: "user", content: prompt }
+        ];
 
-    try {
-        let agenda = req.body ? req.body.agenda : null;
-        let prompt = "";
-        let document = "";
+        const chatCompletion = await openai.chat.completions.create({
+            model: modelName,
+            messages: promptMessages,
+            response_format: { type: "json_object" }
+        });
 
-        // 3. 프롬프트 구성 (페르소나 부여 + 랜덤 재료 주입)
-        const baseSystemPrompt = `
-            Tone: 비유적 표현이 없는 담백한 문어체. 권장형으로 작성.
-            Constraint: '오늘은 운이 좋습니다' 같은 뻔하고 추상적인 말은 절대 금지입니다. 구체적이고 실질적인 조언만 허용됩니다. ~하자 또는 ~하면 좋습니다 와 같은 권장형 문장으로 작성하세요.
-        `;
+        const responseText = chatCompletion.choices[0].message.content;
+        let newFortunes = [];
 
-        // 오늘의 랜덤 키워드 컨텍스트 생성
-        const randomContext = `
-            - 주제: ${selectedItems.join(", ")}
-        `;
+        try {
+            const parsedResponse = JSON.parse(responseText);
+            if (!parsedResponse || !Array.isArray(parsedResponse.fortunes)) {
+                 throw new Error("API 응답에서 'fortunes' 배열을 찾을 수 없습니다.");
+            }
+            newFortunes = parsedResponse.fortunes;
+        } catch (parseError) {
+            logger.error("JSON 파싱 오류:", responseText, parseError);
+            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
+        }
 
-        if (!agenda) {
-            prompt = `
-                ${randomContext}
-                
-                30자 이내의 짧은 '오늘의 운세' 30문장을 작성해주세요.
-                하나하나의 문장은 랜덤한 1개의 각각 다른 주제를 구체적으로 다루어야 합니다.
-                문장에 :와 같은 구두점 사용을 피하고, 다양한 상황을 구체적으로 묘사하세요.
-                
-                출력 형식:
-                JSON 객체 내의 \`fortunes\` 키에 30개의 문자열 배열로 반환하세요.
-                다른 말은 절대 하지 말고 JSON 객체만 반환하세요.
-            `;
-            document = "latest";
-        } else if (agenda === "연애") {
-            prompt = `
-                ${randomContext}
+        newFortunes = newFortunes.map(fortune => {
+            if (typeof fortune === 'string' && (fortune.startsWith("오늘은") || fortune.startsWith("오늘의"))) {
+                 return fortune.replace(/^오늘은\s*/, '').replace(/^오늘의\s*/, '');
+            }
+            return fortune;
+        }).filter(fortune => typeof fortune === 'string'); // 문자열 타입만 필터링
 
-                위 키워드들의 분위기를 녹여내어, '오늘의 연애 운세' 10문장을 작성해주세요.
-                설렘, 다툼, 화해, 인연 등 다양한 상황을 구체적으로 묘사하세요.
+        if (newFortunes.length === 0) {
+             throw new Error("API로부터 유효한 운세 데이터를 받지 못했습니다.");
+        }
 
-                출력 형식:
-                JSON 객체 내의 \`fortunes\` 키에 10개의 문자열 배열로 반환하세요.
-                다른 말은 절대 하지 말고 JSON 객체만 반환하세요.
-            `;
-            document = "love";
-        }
+        // Firestore에 저장 (단일 문서 방식)
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
+        await fortuneRef.set({
+            fortunes: newFortunes,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp() // 업데이트 시간 기록
+        });
 
-        const modelName = "gpt-5-nano"; // 기존 모델명 유지
-        const promptMessages = [
-            { role: "system", content: "You must output a valid JSON object. " + baseSystemPrompt },
-            { role: "user", content: prompt }
-        ];
+        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
 
-        const chatCompletion = await openai.chat.completions.create({
-            model: modelName,
-            messages: promptMessages,
-            response_format: { type: "json_object" }
-        });
+        // res가 null일 수 있는 경우 (스케줄링 등) 처리
+        if (res) {
+            res.send({
+                result: "success",
+                op: "getDailyFortune",
+                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
+                newFortunesList: newFortunes
+            });
+        }
 
-        const responseText = chatCompletion.choices[0].message.content;
-        let newFortunes = [];
-
-        try {
-            const parsedResponse = JSON.parse(responseText);
-            if (!parsedResponse || !Array.isArray(parsedResponse.fortunes)) {
-                throw new Error("API 응답에서 'fortunes' 배열을 찾을 수 없습니다.");
-            }
-            newFortunes = parsedResponse.fortunes;
-        } catch (parseError) {
-            logger.error("JSON 파싱 오류:", responseText, parseError);
-            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
-        }
-
-        // 문장 다듬기 (기존 로직 유지)
-        newFortunes = newFortunes.map(fortune => {
-            if (typeof fortune === 'string') {
-                // "오늘은", "오늘의" 같은 시작 문구 제거하여 더 깔끔하게
-                return fortune.replace(/^(오늘은|오늘의)\s*/, '');
-            }
-            return fortune;
-        }).filter(fortune => typeof fortune === 'string');
-
-        if (newFortunes.length === 0) {
-            throw new Error("API로부터 유효한 운세 데이터를 받지 못했습니다.");
-        }
-
-        // Firestore 저장 (기존 로직 유지)
-        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
-        await fortuneRef.set({
-            fortunes: newFortunes,
-            theme: { // (선택사항) 오늘 사용된 테마도 같이 저장해두면 나중에 보여주기 좋습니다.
-                items: selectedItems,
-            },
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
-
-        if (res) {
-            res.send({
-                result: "success",
-                op: "getDailyFortune",
-                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
-                newFortunesList: newFortunes
-            });
-        }
-
-    } catch (e) {
-        logger.error("getDailyFortune 오류:", e);
-        if (res) {
-            res.send({ result: "fail", message: e.message });
-        }
-    }
+    } catch (e) {
+        logger.error("getDailyFortune 오류:", e);
+        // res가 null일 수 있는 경우 처리
+        if (res) {
+            res.send({ result: "fail", message: e.message });
+        }
+    }
 };
 
 //오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
