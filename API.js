@@ -327,28 +327,28 @@ exports.generateChat = async function(req,res) {
 
 //제미나이 서치 스트리밍 테스트
 exports.generate = async function(req,res) {
-    try{
-        let prompt = req.body.prompt;
+    let prompt = req.body.prompt; // 이 함수는 'data'를 사용하지 않음 (원본 로직 유지)
+    let text = "";
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001"}); // 모델명 최신으로 변경 권장
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Transfer-Encoding', 'chunked');
+    try {
+        // 1. OpenAI (Primary) 시도
+        text = await _callOpenAI(prompt);
+        res.send(text);
 
-        const result = await model.generateContentStream(prompt);
+    } catch (openaiError) {
+        logger.warn(`OpenAI chat failed (falling back to Gemini): ${openaiError.message}`);
 
-        for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            res.write(chunkText); // 받은 텍스트 조각을 클라이언트로 즉시 전송
-        }
-
-        res.end(); // 스트림이 끝났음을 알림
-    } catch(e) {
-        logger.error("generate (stream) error: " + e.message); // 오류 로깅 추가
-        // 스트리밍 중 오류 발생 시 클라이언트에 오류 메시지 전송 시도 (이미 헤더가 전송되었을 수 있음)
-        if (!res.headersSent) {
-            res.status(500).send({result:"fail",message:e.message});
-        } else {
-            res.end(); // 스트림 강제 종료
+        // 2. Gemini (Fallback) 시도
+        try {
+            // 동일한 'prompt' 사용
+            text = await _callGemini(prompt); 
+            res.send(text);
+        
+        } catch (geminiError) {
+            // Gemini 마저 실패하면 최종 에러로 처리
+            logger.error(`Fallback Gemini chat also failed: ${geminiError.message}`);
+            // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
+            throw new Error(`Both models failed. OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
         }
     }
 }
