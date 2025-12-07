@@ -12,6 +12,13 @@ const fs = require('fs');
 const { OpenAI } = require("openai");
 const openai = new OpenAI(); // API 키는 환경 변수 OPENAI_API_KEY 에서 자동으로 로드됩니다.
 
+// [신규] Google Cloud TTS 클라이언트
+const { TextToSpeechClient } = require('@google-cloud/text-to-speech');
+// Firebase용 키 파일을 TTS 인증에도 재사용 (같은 프로젝트인 경우)
+const ttsClient = new TextToSpeechClient({
+    keyFilename: './serviceAccountKey.json' 
+});
+
 // [신규] 뉴스 수집 및 정제를 위한 패키지
 const Parser = require('rss-parser');
 const parser = new Parser();
@@ -26,7 +33,7 @@ const messageService = new SolapiMessageService(process.env.SOLAPI_API_KEY, proc
 // Firebase Admin SDK 초기화
 const admin = require('firebase-admin');
 // 서비스 계정 키 파일 경로 (실제 경로로 수정 필요)
-const serviceAccount = require('./serviceAccountKey.json'); // <<--- 이 파일 경로를 확인해주세요.
+const serviceAccount = require('./serviceAccountKey.json'); 
 
 if (!admin.apps.length) {
     admin.initializeApp({
@@ -704,26 +711,6 @@ function getSimilarity(str1, str2) {
     return (2.0 * intersection) / (set1.size + set2.size);
 }
 
-// [헬퍼 1] 두 문자열의 유사도 측정 (Dice Coefficient, 전체적 문장 유사도)
-function getSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    const s1 = str1.replace(/\s+/g, '').toLowerCase();
-    const s2 = str2.replace(/\s+/g, '').toLowerCase();
-    const bigrams = (str) => {
-        const result = new Set();
-        for (let i = 0; i < str.length - 1; i++) {
-            result.add(str.substring(i, i + 2));
-        }
-        return result;
-    };
-    const set1 = bigrams(s1);
-    const set2 = bigrams(s2);
-    if (set1.size === 0 || set2.size === 0) return 0.0;
-    let intersection = 0;
-    set1.forEach(item => { if (set2.has(item)) intersection++; });
-    return (2.0 * intersection) / (set1.size + set2.size);
-}
-
 // [헬퍼 2] 연속된 문자 겹침 확인 (New! 키워드 중복 방지)
 // "넷플릭스 주가" vs "넷플릭스 신작" -> "넷플릭"(3글자)이 겹치므로 true 반환
 function checkKeywordOverlap(str1, str2, length = 3) {
@@ -741,39 +728,6 @@ function checkKeywordOverlap(str1, str2, length = 3) {
         if (s2.includes(chunk)) {
             return true; // 3글자 연속 겹침 발견
         }
-    }
-    return false;
-}
-
-// [헬퍼 1] 문장 유사도 측정 (Dice Coefficient)
-function getSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    const s1 = str1.replace(/\s+/g, '').toLowerCase();
-    const s2 = str2.replace(/\s+/g, '').toLowerCase();
-    const bigrams = (str) => {
-        const result = new Set();
-        for (let i = 0; i < str.length - 1; i++) {
-            result.add(str.substring(i, i + 2));
-        }
-        return result;
-    };
-    const set1 = bigrams(s1);
-    const set2 = bigrams(s2);
-    if (set1.size === 0 || set2.size === 0) return 0.0;
-    let intersection = 0;
-    set1.forEach(item => { if (set2.has(item)) intersection++; });
-    return (2.0 * intersection) / (set1.size + set2.size);
-}
-
-// [헬퍼 2] 3글자 이상 연속 키워드 겹침 확인 (공백 제거 후 비교)
-function checkKeywordOverlap(str1, str2, length = 3) {
-    if (!str1 || !str2) return false;
-    const s1 = str1.replace(/\s+/g, '').toLowerCase();
-    const s2 = str2.replace(/\s+/g, '').toLowerCase();
-    if (s1.length < length || s2.length < length) return false;
-    for (let i = 0; i <= s1.length - length; i++) {
-        const chunk = s1.substring(i, i + length);
-        if (s2.includes(chunk)) return true;
     }
     return false;
 }
@@ -1020,5 +974,50 @@ exports.getEinkNews = async function(req, res) {
     } catch (e) {
         logger.error("getEinkNews error: " + e.message);
         res.send({ result: "fail", message: e.message });
+    }
+};
+
+// [신규] TTS 생성 API (Google Cloud TTS 사용)
+// 라우터(router.js)에 등록 필요: router.post('/generate-tts', controller.generateTTS);
+exports.generateTTS = async function(req, res) {
+    console.log("generateTTS (Google) : " + JSON.stringify(req.body));
+    try {
+        const text = req.body.text;
+        if (!text) {
+            return res.status(400).send({ result: "fail", message: "Text is required" });
+        }
+
+        // Google Cloud TTS 요청 구성
+        const request = {
+            input: { text: text },
+            // 언어 및 보이스 설정 (Neural2 모델, 남성 뉴스 톤)
+            // ko-KR-Neural2-A (여성), ko-KR-Neural2-B (여성), ko-KR-Neural2-C (남성)
+            voice: { languageCode: 'ko-KR', name: 'ko-KR-Neural2-C' },
+            // 오디오 인코딩 설정 (MP3)
+            audioConfig: { audioEncoding: 'MP3' },
+        };
+
+        // API 호출
+        const [response] = await ttsClient.synthesizeSpeech(request);
+        
+        // 오디오 콘텐츠 (Buffer)
+        const audioContent = response.audioContent;
+
+        if (!audioContent) {
+            throw new Error("No audio content returned from Google TTS");
+        }
+
+        // 클라이언트로 스트리밍 전송
+        res.writeHead(200, {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': audioContent.length
+        });
+        res.end(audioContent);
+
+    } catch (e) {
+        logger.error("generateTTS error: " + e.message);
+        if (!res.headersSent) {
+            res.status(500).send({ result: "fail", message: e.message });
+        }
     }
 };
