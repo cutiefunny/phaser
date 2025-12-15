@@ -331,7 +331,7 @@ exports.generateChat = async function(req,res) {
     }
 };
 
-//제미나이 서치 스트리밍 테스트
+//제미나이 서치 스트리밍 (실패 시 챗지피티로 Fallback)
 exports.generate = async function(req,res) {
     let prompt = req.body.prompt; // 이 함수는 'data'를 사용하지 않음 (원본 로직 유지)
     let text = "";
@@ -492,7 +492,7 @@ exports.getOneFortune = async function(req, res) {
     }
 };
 
-// [신규] 솔라피 알림톡 발송 함수
+// 솔라피 알림톡 발송 함수
 exports.sendKakaotalk = async function(req, res) {
     console.log("sendKakaotalk : " + JSON.stringify(req.body));
     
@@ -536,7 +536,7 @@ exports.sendKakaotalk = async function(req, res) {
     }
 };
 
-// [수정] 운세 발송 (데이터 취합 및 Solapi 대량 발송)
+// 운세 발송 (데이터 취합 및 Solapi 대량 발송)
 exports.sendFortune = async function(req, res) {
     console.log("sendFortune: Processing fortune sending...");
     try {
@@ -635,7 +635,7 @@ exports.sendFortune = async function(req, res) {
     }
 }
 
-// [헬퍼] 두 문자열의 유사도 측정 (Dice Coefficient, 0~1)
+// 두 문자열의 유사도 측정 (Dice Coefficient, 0~1)
 // 제목이 60% 이상 비슷하면 중복으로 간주하기 위함
 function getSimilarity(str1, str2) {
     if (!str1 || !str2) return 0;
@@ -683,7 +683,7 @@ function checkKeywordOverlap(str1, str2, length = 3) {
     return false;
 }
 
-// [수정] 뉴스 수집 (실시간 누적 배열 필터링 적용 + Google RSS 추가)
+// 뉴스 수집 (실시간 누적 배열 필터링 적용 + Google RSS 추가)
 exports.getNews = async function(req, res) {
     const COLLECTION_NAME = 'eink-news';
     
@@ -889,7 +889,7 @@ exports.getNews = async function(req, res) {
     }
 };
 
-// [신규] E-ink 앱용 뉴스 조회 API
+// E-ink 앱용 뉴스 조회 API
 exports.getEinkNews = async function(req, res) {
     try {
         // 클라이언트에서 'category'를 보내면 해당 분야만, 안 보내거나 'all'이면 전체 최신순
@@ -950,7 +950,7 @@ exports.getEinkNews = async function(req, res) {
     }
 };
 
-// [신규] TTS 생성 API (Google Cloud TTS 사용)
+// TTS 생성 API (Google Cloud TTS 사용)
 // 라우터(router.js)에 등록 필요: router.post('/generate-tts', controller.generateTTS);
 exports.generateTTS = async function(req, res) {
     console.log("generateTTS (Google) : " + JSON.stringify(req.body));
