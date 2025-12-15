@@ -72,9 +72,7 @@ async function _callGemini(prompt) {
         if (!apiKey) throw new Error("Google API Key is missing in .env");
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        
-        // 모델명 수정: 'gemini-1.5-flash-latest' 사용 권장
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
@@ -111,13 +109,13 @@ async function _callOpenAI(prompt) {
         const url = 'https://api.openai.com/v1/chat/completions';
         
         const response = await axios.post(url, {
-            model: "gpt-3.5-turbo", // 비용 절감을 위해 3.5-turbo 권장 (또는 gpt-4o-mini)
+            model: "gpt-4o-mini", // 필요에 따라 모델명 변경 가능
             messages: [
                 { role: "system", content: "You are a helpful news summarizer." },
                 { role: "user", content: prompt }
             ],
             temperature: 0.5,
-            max_tokens: 600
+            max_completion_tokens: 600
         }, {
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
@@ -339,22 +337,22 @@ exports.generate = async function(req,res) {
     let text = "";
 
     try {
-        // 1. OpenAI (Primary) 시도
-        text = await _callOpenAI(prompt);
+        // 1. Gemini (Primary) 시도
+        text = await _callGemini(prompt);
         res.send(text);
 
-    } catch (openaiError) {
-        logger.warn(`OpenAI chat failed (falling back to Gemini): ${openaiError.message}`);
+    } catch (geminiError) {
+        logger.warn(`Gemini chat failed (falling back to OpenAI): ${geminiError.message}`);
 
         // 2. Gemini (Fallback) 시도
         try {
             // 동일한 'prompt' 사용
-            text = await _callGemini(prompt); 
+            text = await _callOpenAI(prompt);
             res.send(text);
         
-        } catch (geminiError) {
-            // Gemini 마저 실패하면 최종 에러로 처리
-            logger.error(`Fallback Gemini chat also failed: ${geminiError.message}`);
+        } catch (openaiError) {
+            // OpenAI 마저 실패하면 최종 에러로 처리
+            logger.error(`Fallback OpenAI chat also failed: ${openaiError.message}`);
             // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
             throw new Error(`Both models failed. OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
         }
@@ -363,83 +361,83 @@ exports.generate = async function(req,res) {
 
 //오늘의 운세 생성 (Firebase Firestore 사용)
 exports.getDailyFortune = async function(req, res) {
-    try {
+    try {
 		let agenda = req.body ? req.body.agenda : null;
 		let prompt = "";
 		let document = "";
-        if (!agenda) {
-            prompt = "오늘의 운세 50문장을 JSON 배열 형태로 출력해줘. 금전, 인간관계, 건강에 대한 것을 적절히 섞어서 30자 이내로 줄이되, 완결된 문장이어야 해.";
+        if (!agenda) {
+            prompt = "오늘의 운세 50문장을 JSON 배열 형태로 출력해줘. 금전, 인간관계, 건강에 대한 것을 적절히 섞어서 30자 이내로 줄이되, 완결된 문장이어야 해.";
             prompt += "단순한 덕담이나 조언이 아니라 진짜 운세처럼 좋은 상황, 나쁜 상황을 섞어서 구체적으로 작성해줘. ";
             prompt += "`fortunes`라는 키를 사용하고, 값은 50개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
 			document = "latest";
-        }else if(agenda === "연애"){
-            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 10개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
+        }else if(agenda === "연애"){
+            prompt = "오늘의 연애 운세 10문장을 JSON 배열 형태로 출력해줘. `fortunes`라는 키를 사용하고, 값은 10개의 운세 문장이 담긴 배열이어야 해. 다른 말은 절대 하지 말고 JSON 객체만 반환해.";
 			document = "love";
-        }
+        }
 
-        const modelName = "gpt-5-nano";
-        const promptMessages = [
-            { role: "system", content: "You must output a valid JSON object." },
-            { role: "user", content: prompt }
-        ];
+        const modelName = "gpt-5-nano";
+        const promptMessages = [
+            { role: "system", content: "You must output a valid JSON object." },
+            { role: "user", content: prompt }
+        ];
 
-        const chatCompletion = await openai.chat.completions.create({
-            model: modelName,
-            messages: promptMessages,
-            response_format: { type: "json_object" }
-        });
+        const chatCompletion = await openai.chat.completions.create({
+            model: modelName,
+            messages: promptMessages,
+            response_format: { type: "json_object" }
+        });
 
-        const responseText = chatCompletion.choices[0].message.content;
-        let newFortunes = [];
+        const responseText = chatCompletion.choices[0].message.content;
+        let newFortunes = [];
 
-        try {
-            const parsedResponse = JSON.parse(responseText);
-            if (!parsedResponse || !Array.isArray(parsedResponse.fortunes)) {
-                 throw new Error("API 응답에서 'fortunes' 배열을 찾을 수 없습니다.");
-            }
-            newFortunes = parsedResponse.fortunes;
-        } catch (parseError) {
-            logger.error("JSON 파싱 오류:", responseText, parseError);
-            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
-        }
+        try {
+            const parsedResponse = JSON.parse(responseText);
+            if (!parsedResponse || !Array.isArray(parsedResponse.fortunes)) {
+                 throw new Error("API 응답에서 'fortunes' 배열을 찾을 수 없습니다.");
+            }
+            newFortunes = parsedResponse.fortunes;
+        } catch (parseError) {
+            logger.error("JSON 파싱 오류:", responseText, parseError);
+            throw new Error("API로부터 유효한 JSON 배열을 받지 못했습니다.");
+        }
 
-        newFortunes = newFortunes.map(fortune => {
-            if (typeof fortune === 'string' && (fortune.startsWith("오늘은") || fortune.startsWith("오늘의"))) {
-                 return fortune.replace(/^오늘은\s*/, '').replace(/^오늘의\s*/, '');
-            }
-            return fortune;
-        }).filter(fortune => typeof fortune === 'string'); // 문자열 타입만 필터링
+        newFortunes = newFortunes.map(fortune => {
+            if (typeof fortune === 'string' && (fortune.startsWith("오늘은") || fortune.startsWith("오늘의"))) {
+                 return fortune.replace(/^오늘은\s*/, '').replace(/^오늘의\s*/, '');
+            }
+            return fortune;
+        }).filter(fortune => typeof fortune === 'string'); // 문자열 타입만 필터링
 
-        if (newFortunes.length === 0) {
-             throw new Error("API로부터 유효한 운세 데이터를 받지 못했습니다.");
-        }
+        if (newFortunes.length === 0) {
+             throw new Error("API로부터 유효한 운세 데이터를 받지 못했습니다.");
+        }
 
-        // Firestore에 저장 (단일 문서 방식)
-        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
-        await fortuneRef.set({
-            fortunes: newFortunes,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp() // 업데이트 시간 기록
-        });
+        // Firestore에 저장 (단일 문서 방식)
+        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
+        await fortuneRef.set({
+            fortunes: newFortunes,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp() // 업데이트 시간 기록
+        });
 
-        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
+        logger.info(`Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`);
 
-        // res가 null일 수 있는 경우 (스케줄링 등) 처리
-        if (res) {
-            res.send({
-                result: "success",
-                op: "getDailyFortune",
-                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
-                newFortunesList: newFortunes
-            });
-        }
+        // res가 null일 수 있는 경우 (스케줄링 등) 처리
+        if (res) {
+            res.send({
+                result: "success",
+                op: "getDailyFortune",
+                message: `Firestore 'dailyFortunes/${document || 'latest'}' 문서를 ${newFortunes.length}개의 새 운세로 업데이트했습니다.`,
+                newFortunesList: newFortunes
+            });
+        }
 
-    } catch (e) {
-        logger.error("getDailyFortune 오류:", e);
-        // res가 null일 수 있는 경우 처리
-        if (res) {
-            res.send({ result: "fail", message: e.message });
-        }
-    }
+    } catch (e) {
+        logger.error("getDailyFortune 오류:", e);
+        // res가 null일 수 있는 경우 처리
+        if (res) {
+            res.send({ result: "fail", message: e.message });
+        }
+    }
 };
 
 //오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
