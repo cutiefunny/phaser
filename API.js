@@ -26,6 +26,17 @@ const parser = new Parser();
 const { JSDOM } = require('jsdom');
 const { Readability } = require('@mozilla/readability');
 
+// [신규] LangGraph 및 LangChain 임포트
+const { MemorySaver } = require("@langchain/langgraph");
+const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
+const { ChatOpenAI } = require("@langchain/openai");
+const { StateGraph, MessagesAnnotation, START, END } = require("@langchain/langgraph");
+const { ToolNode } = require("@langchain/langgraph/prebuilt");
+const { tool } = require("@langchain/core/tools");
+const { z } = require("zod");
+const { SystemMessage, HumanMessage } = require("@langchain/core/messages");
+const memory = new MemorySaver();
+
 // Solapi SDK 추가
 const { SolapiMessageService } = require("solapi");
 // Solapi 메시지 서비스 인스턴스 생성
@@ -44,19 +55,243 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// Redis 클라이언트 (주석 처리 또는 필요시 유지)
-/*
-const redis = require('redis');
-const redisClient = redis.createClient({
-    username : process.env.REDIS_USER,
-    password : process.env.REDIS_PASSWORD,
-    socket: {
-        host : process.env.REDIS_HOST,
-        port : process.env.REDIS_PORT
+// ==========================================
+// [신규] 1. 제품 DB 조회 도구 (Mock)
+// ==========================================
+// 실제로는 여기서 CRUD 모듈을 사용하여 DB를 조회하면 됩니다.
+const productSearchTool = tool(
+    async ({ productName }) => {
+        // [로깅]
+        logger.info(`[Tool] 제품 DB 검색어: "${productName}"`);
+        
+        // 1. 데이터 구조 변경 (2-Depth: 카테고리 > 상품명:가격)
+        const mockDB = {
+            "키링": {
+                "아크릴 키링": "4,000원",
+                "3D 키링": "4,000원",
+                "패브릭 키링": "3,000원"
+            },
+            "티셔츠": {
+                "크롭 티셔츠": "12,900원",
+                "30수 반팔 티셔츠": "13,900원",
+                "20수 반팔 티셔츠": "14,900원",
+                "운동복 반팔 티셔츠": "14,900원",
+                "오버핏 반팔 티셔츠": "16,900원"
+            },
+            "문구": {
+                "엽서": "1,000원",
+                "작은 뱃지": "1,500원",
+                "큰 뱃지": "2,500원"
+            }
+        };
+
+        const searchResult = {};
+        const query = productName.replace(/\s+/g, ''); // 검색어 공백 제거
+
+        // 2. 카테고리 순회 (1 Depth)
+        for (const [category, items] of Object.entries(mockDB)) {
+            const cleanCategory = category.replace(/\s+/g, '');
+
+            // [Case A] 사용자가 '카테고리'를 검색한 경우 (예: "티셔츠 보여줘")
+            // 카테고리 이름이 검색어에 포함되거나, 검색어가 카테고리와 일치하면 -> 해당 카테고리 전체 반환
+            if (cleanCategory.includes(query) || query.includes(cleanCategory)) {
+                Object.assign(searchResult, items); 
+            } 
+            // [Case B] 사용자가 '특정 상품'을 검색한 경우 (예: "30수")
+            else {
+                // 상품 순회 (2 Depth)
+                for (const [itemName, price] of Object.entries(items)) {
+                    const cleanItemName = itemName.replace(/\s+/g, '');
+                    
+                    // 상품명에 검색어가 포함되어 있으면 결과에 추가
+                    if (cleanItemName.includes(query) || query.includes(cleanItemName)) {
+                        searchResult[itemName] = price;
+                    }
+                }
+            }
+        }
+
+        // 3. 결과 반환
+        const keys = Object.keys(searchResult);
+        if (keys.length > 0) {
+            logger.info(`[Tool] 검색 결과 ${keys.length}건 발견`);
+            return JSON.stringify(searchResult);
+        } else {
+            return "검색 결과가 없습니다. '티셔츠'나 '키링' 같은 카테고리나 제품명으로 다시 검색해주세요.";
+        }
+    },
+    {
+        name: "product_db_search",
+        description: `
+        쇼핑몰의 제품 가격과 재고를 조회합니다.
+        데이터는 '키링', '티셔츠' 같은 카테고리로 분류되어 있습니다.
+        
+        [검색 팁]
+        1. "티셔츠 보여줘"라고 하면 모든 티셔츠 목록을 가져옵니다.
+        2. "30수"라고 하면 특정 상품만 가져옵니다.
+        3. 검색어는 핵심 단어(예: 반팔, 키링) 위주로 입력하세요.
+        `,
+        schema: z.object({
+            productName: z.string().describe("검색할 카테고리명 또는 제품 키워드"),
+        }),
     }
+);
+
+const tools = [productSearchTool];
+const toolNode = new ToolNode(tools);
+
+// ==========================================
+// [신규] 2. LangGraph 모델 초기화
+// ==========================================
+// openAI를 사용할 경우
+// const model = new ChatOpenAI({
+//     model: "gpt-5-nano", // 필요에 따라 모델명 변경 가능
+//     apiKey: process.env.OPENAI_API_KEY // 환경변수 재사용
+// });
+// Google Gemini 모델을 사용할 경우
+const model = new ChatGoogleGenerativeAI({
+    model: "gemini-2.5-flash-lite",
+    maxTokens: 1024,
+    apiKey: process.env.GOOGLE_API_KEY // 환경변수 재사용
 });
-redisClient.connect();
-*/
+
+// 모델에 도구를 바인딩 (이제 모델은 이 도구의 존재를 압니다)
+const modelWithTools = model.bindTools(tools, {
+    tool_choice: "auto", // Gemini에게 도구 사용을 적극 권장
+});
+
+// ==========================================
+// [신규] 3. 노드(Node) 정의
+// ==========================================
+
+// [노드 1] 챗봇 노드
+async function chatbotNode(state) {
+    const { messages } = state;
+    
+    // 1. 시스템 메시지 추출
+    const systemMessage = messages
+        .filter(m => m._getType() === "system")
+        .pop(); 
+
+    // 2. 실제 대화 내역 (Human, AI, Tool)
+    const chatHistory = messages.filter(m => m._getType() !== "system");
+
+    // 3. 최근 N개 가져오기
+    // Gemini는 순서가 중요하므로 넉넉하게 가져온 뒤 앞을 정리하는 게 낫습니다.
+    let recentMessages = chatHistory.slice(-10); 
+
+    // ================================================================
+    // 🛡️ [Gemini 전용] "반드시 사람(User)으로 시작하기" 로직
+    // ================================================================
+    // 리스트의 맨 앞이 'human' 메시지가 아니라면(AI 메시지, Tool 결과 등),
+    // 'human' 메시지가 나올 때까지 앞에서부터 제거합니다.
+    // 이렇게 하면 항상 [User -> AI -> User -> AI] 순서가 보장됩니다.
+    
+    while (recentMessages.length > 0 && recentMessages[0]._getType() !== "human") {
+        logger.info(`🧹 [History Trimming] Gemini 규칙 준수를 위해 '${recentMessages[0]._getType()}' 메시지를 기록에서 제외합니다.`);
+        recentMessages.shift(); // 맨 앞 제거
+    }
+
+    // 4. 최종 메시지 조합
+    // (만약 다 지워져서 없으면, 시스템 메시지만 남지만 곧바로 User의 새 질문이 들어오므로 괜찮습니다)
+    const inputMessages = systemMessage ? [systemMessage, ...recentMessages] : recentMessages;
+
+    // 디버깅: 최종적으로 나가는 메시지 구조 확인
+    // const msgTypes = inputMessages.map(m => m._getType());
+    // logger.info(`[Context] Sending types: ${msgTypes.join(" -> ")}`);
+
+    const response = await modelWithTools.invoke(inputMessages);
+    return { messages: [response] };
+}
+
+// [조건부 엣지] 라우팅 로직 디버깅
+function routeTools(state) {
+    const messages = state.messages;
+    const lastMessage = messages[messages.length - 1];
+
+    // Tool call 존재 여부 확인
+    if (lastMessage.tool_calls?.length > 0) {
+        return "tools";
+    }
+    return END;
+}
+
+// ==========================================
+// [신규] 4. 그래프(Graph) 빌드
+// ==========================================
+const workflow = new StateGraph(MessagesAnnotation)
+    .addNode("chatbot", chatbotNode)
+    .addNode("tools", toolNode)
+    .addEdge(START, "chatbot")
+    .addConditionalEdges("chatbot", routeTools, { tools: "tools", [END]: END })
+    .addEdge("tools", "chatbot");
+
+// ⚠️ 여기 checkpointer: memory 가 꼭 들어가야 합니다!
+const appGraph = workflow.compile({ checkpointer: memory });
+
+// ==========================================
+// [수정] 5. generate 함수 (SystemMessage 동적 적용)
+// ==========================================
+// [수정] generate 함수
+exports.generate = async function(req, res) {
+    const userPrompt = req.body.prompt;
+    const userRole = req.body.role;
+    // [신규] 클라이언트에서 세션 ID를 받습니다. (없으면 기본값 'default')
+    // 예: 사용자의 쿠키나 UUID 사용
+    const threadId = req.body.sessionId || "default_user";
+
+    logger.info(`[Request] Prompt: "${userPrompt}", Session: ${threadId}`);
+
+    try {
+        if (!userPrompt) throw new Error("Prompt is missing.");
+
+        // 기본 시스템 메시지 정의
+        // const defaultSystemMessage = "넌 근육고양이봇이야. 반말로 짧게 대답해줘.";
+        const defaultSystemMessage = `
+                                넌 귀여운 소품점인 근육고양이잡화점의 근육고양이봇이야. 반말로 짧게 대답해줘.
+                                사용자가 제품(가격, 재고 등)에 대해 물어보면 **즉시 'product_db_search' 도구를 호출하세요.**
+                                질문이 사장님 등의 호칭으로 시작할 경우 호칭을 무시하고 질문의 핵심 내용만 파악해서 대답해줘.
+                                제품에 대한 질문이 아닐 경우 일상적인 대화로 자연스럽게 답변해줘.
+
+                                [중요한 규칙]
+                                1. **"검색해볼게", "잠시만 기다려", "확인해겠습니다" 같은 말을 절대 먼저 하지 마세요.**
+                                2. 사용자의 질문을 받자마자 **아무런 말 없이 도구(JSON)부터 실행**하세요.
+                                3. 도구 실행 결과가 나오면 그때 답변하세요.
+                                `;
+
+        // req.body.role이 있으면 그것을 사용하고, 없으면 기본 메시지 사용
+        const systemMessageContent = userRole ? userRole : defaultSystemMessage;
+
+        // 입력값 구성
+        const inputs = {
+            messages: [
+                new SystemMessage(systemMessageContent),
+                new HumanMessage(userPrompt)
+            ]
+        };
+
+        // [핵심] thread_id를 config에 넣어서 실행
+        const config = {
+            configurable: { thread_id: threadId }
+        };
+
+        // invoke에 config 전달 -> 이제 LangGraph가 이 ID로 이전 대화를 불러옵니다.
+        const result = await appGraph.invoke(inputs, config);
+        
+        const lastMessage = result.messages[result.messages.length - 1];
+        res.send(lastMessage.content);
+
+    } catch (error) {
+        logger.error(`[LangGraph Error] ${error.message}`);
+        // Fallback 로직 (필요시 유지)
+        try {
+            const fallbackResponse = await _callOpenAI(userPrompt);
+            res.send(fallbackResponse);
+        } catch (fbError) {
+            res.status(500).send({ message: error.message });
+        }
+    }
+};
 
 // --- 헬퍼 함수: API 호출 로직 분리 ---
 
@@ -152,98 +387,6 @@ async function _callOpenAI(prompt) {
     }
 }
 
-//근육고양이잡화점 네이버 검색 결과(1시간 이내)
-exports.getSearchMusclecat = async function(req,res) {
-    var label = "[네이버검색]";
-    var datetime = moment().format('YYYY-MM-DD HH:mm:ss');
-    console.log({label:label,message:"start at " + datetime});
-    var url = 'https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query=%EA%B7%BC%EC%9C%A1%EA%B3%A0%EC%96%91%EC%9D%B4%EC%9E%A1%ED%99%94%EC%A0%90&nso=p%3A1h'; //1시간
-
-    try {
-        const response = await axios.get(url);
-        const $ = cheerio.load(response.data);
-        const teleURL = 'https://api.telegram.org/bot5432313787:AAGOdLVR78YEAty8edwCCsqma7G89F-PoUY/sendMessage';
-
-        $('.title_link').each(async function() {
-            if ($(this).attr('href').includes('blog.naver.com')) {
-                const options = {
-                    method: 'POST',
-                    url: teleURL,
-                    headers: { 'Content-Type': 'application/json' },
-                    data: { chat_id: '-1001903247433', text: $(this).attr('href') }
-                };
-                try {
-                    await axios(options);
-                } catch (error) {
-                    // 개별 메시지 전송 오류 로깅 (전체 프로세스 중단 방지)
-                    logger.error("Telegram sendMessage error: ", error.message);
-                }
-            }
-        });
-        // res가 정의되지 않았으므로 응답 전송 로직은 제거하거나 필요에 맞게 수정합니다.
-        // res.send({ result: "success" }); // 예시: 성공 응답 (필요시 추가)
-    } catch (error) {
-        logger.error("getSearchMusclecat error: " + error.message);
-    }
-}
-
-exports.getLiveMatchInfo = async function (req, res) {
-    console.log("getLiveMatchInfo : " + JSON.stringify(req.body));
-    const url = 'https://www.betman.co.kr/matchinfo/inqMainLivescreMchList.do';
-    const headers = {
-        'Content-Type': 'application/json',
-    };
-    const data = {
-        "schDate": req.body.schDate || moment().format("YYYY.MM.DD"), // 날짜 형식 수정 및 기본값 오늘로 변경
-        "_sbmInfo": {
-            "_sbmInfo": {
-            "debugMode": "false"
-            }
-        }
-    }
-
-    try {
-        const response = await axios.post(url, data, { headers });
-        res.send({ result: "success", data: response.data });
-    } catch (error) {
-        logger.error("getLiveMatchInfo error: " + error.message);
-        res.send({ result: "fail", message: error.message });
-    }
-};
-
-exports.inqMainGameInfo = async function (req, res) {
-    console.log("inqMainGameInfo : " + JSON.stringify(req.body));
-    const url = 'https://www.betman.co.kr/matchinfo/inqMainGameInfo.do';
-    const headers = {
-        'Content-Type': 'application/json',
-    };
-    const data = {
-        "_sbmInfo": {
-            "_sbmInfo": {
-                "debugMode": "false"
-            }
-        }
-    }
-
-    try {
-        const response = await axios.post(url, data, { headers });
-        res.send({ result: "success", data: response.data });
-    } catch (error) {
-        logger.error("inqMainGameInfo error: " + error.message);
-        res.send({ result: "fail", message: error.message });
-    }
-}
-
-//점수 저장
-exports.saveScore = async function (req,res){
-    console.log("saveScore : "+JSON.stringify(req.body));
-    req.body.createTm = moment().format("YYYY-MM-DD HH:mm:ss");
-    await CRUD.insertData("wallballshot",req.body); // MongoDB 사용 유지
-    let result = await CRUD.searchData("getScore","wallballshot");
-    console.log("result : "+JSON.stringify(result));
-    res.send({op:"saveScore",result:result});
-}
-
 /** re
  * 제미나이 서치 (실패 시 챗지피티로 Fallback)
  * [수정됨] data 유무에 따라 프롬프트 분기 처리
@@ -331,33 +474,33 @@ exports.generateChat = async function(req,res) {
     }
 };
 
-//제미나이 서치 스트리밍 (실패 시 챗지피티로 Fallback)
-exports.generate = async function(req,res) {
-    let prompt = req.body.prompt; // 이 함수는 'data'를 사용하지 않음 (원본 로직 유지)
-    let text = "";
+//제미나이 서치 스트리밍 (실패 시 챗지피티로 Fallback) //랭그래프 적용을 위해 주석처리
+// exports.generate = async function(req,res) {
+//     let prompt = req.body.prompt; // 이 함수는 'data'를 사용하지 않음 (원본 로직 유지)
+//     let text = "";
 
-    try {
-        // 1. Gemini (Primary) 시도
-        text = await _callGemini(prompt);
-        res.send(text);
+//     try {
+//         // 1. Gemini (Primary) 시도
+//         text = await _callGemini(prompt);
+//         res.send(text);
 
-    } catch (geminiError) {
-        logger.warn(`Gemini chat failed (falling back to OpenAI): ${geminiError.message}`);
+//     } catch (geminiError) {
+//         logger.warn(`Gemini chat failed (falling back to OpenAI): ${geminiError.message}`);
 
-        // 2. Gemini (Fallback) 시도
-        try {
-            // 동일한 'prompt' 사용
-            text = await _callOpenAI(prompt);
-            res.send(text);
+//         // 2. Gemini (Fallback) 시도
+//         try {
+//             // 동일한 'prompt' 사용
+//             text = await _callOpenAI(prompt);
+//             res.send(text);
         
-        } catch (openaiError) {
-            // OpenAI 마저 실패하면 최종 에러로 처리
-            logger.error(`Fallback OpenAI chat also failed: ${openaiError.message}`);
-            // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
-            throw new Error(`Both models failed. OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
-        }
-    }
-}
+//         } catch (openaiError) {
+//             // OpenAI 마저 실패하면 최종 에러로 처리
+//             logger.error(`Fallback OpenAI chat also failed: ${openaiError.message}`);
+//             // 두 번째 오류를 바깥 catch로 던져서 최종 실패 처리
+//             throw new Error(`Both models failed. OpenAI: ${openaiError.message}, Gemini: ${geminiError.message}`);
+//         }
+//     }
+// }
 
 //오늘의 운세 생성 (Firebase Firestore 사용)
 exports.getDailyFortune = async function(req, res) {
@@ -994,3 +1137,111 @@ exports.generateTTS = async function(req, res) {
         }
     }
 };
+
+//#region 안 쓰는거
+// Redis 클라이언트 (주석 처리 또는 필요시 유지)
+/*
+const redis = require('redis');
+const redisClient = redis.createClient({
+    username : process.env.REDIS_USER,
+    password : process.env.REDIS_PASSWORD,
+    socket: {
+        host : process.env.REDIS_HOST,
+        port : process.env.REDIS_PORT
+    }
+});
+redisClient.connect();
+*/
+
+//근육고양이잡화점 네이버 검색 결과(1시간 이내)
+exports.getSearchMusclecat = async function(req,res) {
+    var label = "[네이버검색]";
+    var datetime = moment().format('YYYY-MM-DD HH:mm:ss');
+    console.log({label:label,message:"start at " + datetime});
+    var url = 'https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query=%EA%B7%BC%EC%9C%A1%EA%B3%A0%EC%96%91%EC%9D%B4%EC%9E%A1%ED%99%94%EC%A0%90&nso=p%3A1h'; //1시간
+
+    try {
+        const response = await axios.get(url);
+        const $ = cheerio.load(response.data);
+        const teleURL = 'https://api.telegram.org/bot5432313787:AAGOdLVR78YEAty8edwCCsqma7G89F-PoUY/sendMessage';
+
+        $('.title_link').each(async function() {
+            if ($(this).attr('href').includes('blog.naver.com')) {
+                const options = {
+                    method: 'POST',
+                    url: teleURL,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { chat_id: '-1001903247433', text: $(this).attr('href') }
+                };
+                try {
+                    await axios(options);
+                } catch (error) {
+                    // 개별 메시지 전송 오류 로깅 (전체 프로세스 중단 방지)
+                    logger.error("Telegram sendMessage error: ", error.message);
+                }
+            }
+        });
+        // res가 정의되지 않았으므로 응답 전송 로직은 제거하거나 필요에 맞게 수정합니다.
+        // res.send({ result: "success" }); // 예시: 성공 응답 (필요시 추가)
+    } catch (error) {
+        logger.error("getSearchMusclecat error: " + error.message);
+    }
+}
+
+exports.getLiveMatchInfo = async function (req, res) {
+    console.log("getLiveMatchInfo : " + JSON.stringify(req.body));
+    const url = 'https://www.betman.co.kr/matchinfo/inqMainLivescreMchList.do';
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+    const data = {
+        "schDate": req.body.schDate || moment().format("YYYY.MM.DD"), // 날짜 형식 수정 및 기본값 오늘로 변경
+        "_sbmInfo": {
+            "_sbmInfo": {
+            "debugMode": "false"
+            }
+        }
+    }
+
+    try {
+        const response = await axios.post(url, data, { headers });
+        res.send({ result: "success", data: response.data });
+    } catch (error) {
+        logger.error("getLiveMatchInfo error: " + error.message);
+        res.send({ result: "fail", message: error.message });
+    }
+};
+
+exports.inqMainGameInfo = async function (req, res) {
+    console.log("inqMainGameInfo : " + JSON.stringify(req.body));
+    const url = 'https://www.betman.co.kr/matchinfo/inqMainGameInfo.do';
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+    const data = {
+        "_sbmInfo": {
+            "_sbmInfo": {
+                "debugMode": "false"
+            }
+        }
+    }
+
+    try {
+        const response = await axios.post(url, data, { headers });
+        res.send({ result: "success", data: response.data });
+    } catch (error) {
+        logger.error("inqMainGameInfo error: " + error.message);
+        res.send({ result: "fail", message: error.message });
+    }
+}
+
+//점수 저장
+exports.saveScore = async function (req,res){
+    console.log("saveScore : "+JSON.stringify(req.body));
+    req.body.createTm = moment().format("YYYY-MM-DD HH:mm:ss");
+    await CRUD.insertData("wallballshot",req.body); // MongoDB 사용 유지
+    let result = await CRUD.searchData("getScore","wallballshot");
+    console.log("result : "+JSON.stringify(result));
+    res.send({op:"saveScore",result:result});
+}
+//#endregion
