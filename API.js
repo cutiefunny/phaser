@@ -61,63 +61,65 @@ const db = admin.firestore();
 // 실제로는 여기서 CRUD 모듈을 사용하여 DB를 조회하면 됩니다.
 const productSearchTool = tool(
     async ({ productName }) => {
-        // [로깅]
-        logger.info(`[Tool] 제품 DB 검색어: "${productName}"`);
-        
-        // 1. 데이터 구조 변경 (2-Depth: 카테고리 > 상품명:가격)
-        const mockDB = {
-            "키링": {
-                "아크릴 키링": "4,000원",
-                "3D 키링": "4,000원",
-                "패브릭 키링": "3,000원"
-            },
-            "티셔츠": {
-                "크롭 티셔츠": "12,900원",
-                "30수 반팔 티셔츠": "13,900원",
-                "20수 반팔 티셔츠": "14,900원",
-                "운동복 반팔 티셔츠": "14,900원",
-                "오버핏 반팔 티셔츠": "16,900원"
-            },
-            "문구": {
-                "엽서": "1,000원",
-                "작은 뱃지": "1,500원",
-                "큰 뱃지": "2,500원"
+        try {
+            // [로깅]
+            logger.info(`[Tool] 제품 DB 검색어: "${productName}"`);
+
+            // 1. Firestore에서 전체 상품 데이터 조회
+            // (데이터 양이 많지 않으므로 전체를 가져와서 메모리에서 검색하는 방식이 효율적입니다)
+            const productsRef = db.collection('products');
+            const snapshot = await productsRef.get();
+
+            if (snapshot.empty) {
+                return "현재 데이터베이스에 등록된 상품이 없습니다.";
             }
-        };
 
-        const searchResult = {};
-        const query = productName.replace(/\s+/g, ''); // 검색어 공백 제거
+            // 2. 데이터를 기존 로직 처리에 맞는 구조로 변환
+            // 구조: { "키링": { "아크릴 키링": "4,000원", ... }, "티셔츠": { ... } }
+            const productsDB = {};
+            snapshot.forEach(doc => {
+                // doc.id는 카테고리명(예: 키링), doc.data()는 상품 목록 객체
+                productsDB[doc.id] = doc.data();
+            });
 
-        // 2. 카테고리 순회 (1 Depth)
-        for (const [category, items] of Object.entries(mockDB)) {
-            const cleanCategory = category.replace(/\s+/g, '');
+            const searchResult = {};
+            const query = productName.replace(/\s+/g, ''); // 검색어 공백 제거
 
-            // [Case A] 사용자가 '카테고리'를 검색한 경우 (예: "티셔츠 보여줘")
-            // 카테고리 이름이 검색어에 포함되거나, 검색어가 카테고리와 일치하면 -> 해당 카테고리 전체 반환
-            if (cleanCategory.includes(query) || query.includes(cleanCategory)) {
-                Object.assign(searchResult, items); 
-            } 
-            // [Case B] 사용자가 '특정 상품'을 검색한 경우 (예: "30수")
-            else {
-                // 상품 순회 (2 Depth)
-                for (const [itemName, price] of Object.entries(items)) {
-                    const cleanItemName = itemName.replace(/\s+/g, '');
-                    
-                    // 상품명에 검색어가 포함되어 있으면 결과에 추가
-                    if (cleanItemName.includes(query) || query.includes(cleanItemName)) {
-                        searchResult[itemName] = price;
+            // 3. 카테고리 및 상품 순회 (기존 로직 유지)
+            for (const [category, items] of Object.entries(productsDB)) {
+                const cleanCategory = category.replace(/\s+/g, '');
+
+                // [Case A] 사용자가 '카테고리'를 검색한 경우 (예: "티셔츠 보여줘")
+                // 카테고리 이름이 검색어에 포함되거나, 검색어가 카테고리와 일치하면 -> 해당 카테고리 전체 반환
+                if (cleanCategory.includes(query) || query.includes(cleanCategory)) {
+                    Object.assign(searchResult, items);
+                }
+                // [Case B] 사용자가 '특정 상품'을 검색한 경우 (예: "30수")
+                else {
+                    // 상품 순회
+                    for (const [itemName, price] of Object.entries(items)) {
+                        const cleanItemName = itemName.replace(/\s+/g, '');
+
+                        // 상품명에 검색어가 포함되어 있으면 결과에 추가
+                        if (cleanItemName.includes(query) || query.includes(cleanItemName)) {
+                            searchResult[itemName] = price;
+                        }
                     }
                 }
             }
-        }
 
-        // 3. 결과 반환
-        const keys = Object.keys(searchResult);
-        if (keys.length > 0) {
-            logger.info(`[Tool] 검색 결과 ${keys.length}건 발견`);
-            return JSON.stringify(searchResult);
-        } else {
-            return "검색 결과가 없습니다. '티셔츠'나 '키링' 같은 카테고리나 제품명으로 다시 검색해주세요.";
+            // 4. 결과 반환
+            const keys = Object.keys(searchResult);
+            if (keys.length > 0) {
+                logger.info(`[Tool] 검색 결과 ${keys.length}건 발견 (Firebase)`);
+                return JSON.stringify(searchResult);
+            } else {
+                return "검색 결과가 없습니다. '티셔츠'나 '키링' 같은 카테고리나 제품명으로 다시 검색해주세요.";
+            }
+
+        } catch (error) {
+            logger.error(`[Tool Error] Firebase 조회 중 오류 발생: ${error.message}`);
+            return "죄송합니다. 상품 정보를 불러오는 도중 오류가 발생했습니다.";
         }
     },
     {
