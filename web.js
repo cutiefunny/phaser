@@ -13,22 +13,22 @@ const cors = require('cors'); // 💡 1. cors 패키지 불러오기
 
 // 💡 2. CORS 미들웨어 설정
 const corsOptions = {
-  origin: [
-    'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:8000',
     'http://localhost:5173',
     'http://localhost:5174',
-    'https://musclecat-chat.vercel.app',
-    'https://react-flow-three-ecru.vercel.app',
-    'https://clt-chatbot.vercel.app/',
-    'http://202.20.84.65:10001/',
-    'http://202.20.84.65:10000/',
-    'https://musclecat-studio.com',
+    'https://musclecat-chat.vercel.app',
+    'https://react-flow-three-ecru.vercel.app',
+    'https://clt-chatbot.vercel.app/',
+    'http://202.20.84.65:10001/',
+    'http://202.20.84.65:10000/',
+    'https://musclecat-studio.com',
     'https://stock-info-smoky.vercel.app',
     'https://eink-news.vercel.app'
-  ],
-  optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
+  ],
+  optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
 };
 
 app.use(cors(corsOptions)); // 💡 3. CORS 미들웨어를 Express 앱에 적용
@@ -48,6 +48,7 @@ app.get('/main', router.main2);
 app.get('/wallball', router.wallball);
 app.get('/adventure', router.adventure);
 app.get('/seoulData', router.seoulData);
+app.get('/productAdmin', router.productAdmin);
 
 app.post('/saveScore', API.saveScore);
 app.post('/search', API.search);
@@ -63,20 +64,25 @@ app.post('/getNews', API.getNews);
 app.post('/getEinkNews', API.getEinkNews);
 app.post('/generate-tts', API.generateTTS);
 
+//제품 crud
+app.post('/saveProduct', API.saveProduct);
+app.post('/updateProduct', API.updateProduct);
+app.post('/deleteProduct', API.deleteProduct);
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
 
 cron.schedule('0 * * * *', async () => {
-  if (new Date().getHours() === 0) {
-    console.log('한투 토큰 갱신');
-    await generateToken();
-    console.log('오늘의 운세 생성');
-    await API.getDailyFortune(null, null);
-  }else if (new Date().getHours() === 8) {
-    console.log('오늘의 운세톡 발송');
-    await API.sendFortune(null, null);
-  }
+  if (new Date().getHours() === 0) {
+    console.log('한투 토큰 갱신');
+    await generateToken();
+    console.log('오늘의 운세 생성');
+    await API.getDailyFortune(null, null);
+  }else if (new Date().getHours() === 8) {
+    console.log('오늘의 운세톡 발송');
+    await API.sendFortune(null, null);
+  }
   // 매 시간마다 E-ink 뉴스 업데이트
   console.log('뉴스 업데이트');
   await API.getNews(null, null);

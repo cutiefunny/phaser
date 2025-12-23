@@ -4,6 +4,7 @@ require('dotenv').config();
 const axios = require('axios');
 const common = require('./common');
 const e = require("express");
+const API = require('./API');
 
 let local = "N";
 if(common.getServerIp() != "210.114.17.65") local = "Y";
@@ -80,4 +81,15 @@ exports.seoulData = async function (req,res){
         , result : result
         , allData : JSON.stringify(allData)
     });   
+}
+
+// [신규] 제품 관리 페이지 렌더링
+exports.productAdmin = async function (req, res) {
+    // API 함수 재사용하여 데이터 조회
+    const productList = await API.getProductsData();
+    
+    res.render('productAdmin', { 
+        title: '제품 가격 관리 (Firebase)',
+        productList: productList
+    });
 }

@@ -1,0 +1,203 @@
+html
+  head
+    title 제품 및 바코드 관리
+    meta(charset="UTF-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1.0")
+    link(rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.css")
+    style.
+      body { padding: 20px; background-color: #f9fafb; font-family: 'Pretendard', sans-serif; }
+      .main.container { margin-top: 50px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      .qr-preview { width: 80px; height: 80px; object-fit: contain; border: 1px solid #eee; padding: 5px; background: #fff; }
+      .qr-placeholder { width: 80px; height: 80px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 0.8em; text-align: center; }
+
+  body
+    .ui.main.container
+      h2.ui.header
+        i.qrcode.icon
+        .content
+          | 제품 및 바코드(QR) 관리
+          .sub.header 8자리 바코드를 입력하면 QR이 자동 생성됩니다.
+      
+      button.ui.primary.button(onclick="openModal('add')")
+        i.plus.icon
+        | 새 상품 추가
+
+      table.ui.celled.table.striped
+        thead
+          tr
+            th(style="width: 15%; text-align: center;") QR 미리보기
+            th(style="width: 15%;") 카테고리
+            th(style="width: 25%;") 상품명
+            th(style="width: 20%;") 가격
+            th(style="width: 15%;") 바코드
+            th(style="width: 10%; text-align: center;") 관리
+        tbody
+          each item in productList
+            tr
+              td.center.aligned
+                if item.barcode
+                  img.qr-preview(src=`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${item.barcode}`)
+                else
+                  .qr-placeholder No QR
+              td
+                .ui.label= item.category
+              td= item.name
+              td= item.price
+              td= item.barcode
+              td.center.aligned
+                button.ui.icon.button.blue.mini(
+                  onclick=`openModal('edit', '${item.category}', '${item.name}', '${item.price}', '${item.barcode}')`
+                )
+                  i.edit.icon
+                button.ui.icon.button.red.mini(
+                  onclick=`deleteItem('${item.category}', '${item.name}')`
+                )
+                  i.trash.icon
+
+    //- 모달
+    .ui.modal#productModal
+      .header 정보 입력
+      .content
+        form.ui.form
+          input#originCategory(type="hidden")
+          input#originName(type="hidden")
+          
+          .two.fields
+            .field
+              label 카테고리
+              input#inputCategory(type="text" placeholder="예: 키링")
+            .field
+              label 가격
+              input#inputPrice(type="text" placeholder="예: 4,000원")
+          
+          .field
+            label 상품명
+            input#inputName(type="text")
+          
+          .field
+            label 바코드 (숫자 8자리)
+            //- 입력 시 바로 미리보기 함수 호출
+            input#inputBarcode(type="text" placeholder="예: 12345678" onkeyup="updateQrPreview(this.value)")
+            
+          .field(style="text-align: center; margin-top: 10px;")
+            label QR 미리보기
+            img#modalQrPreview.qr-preview(style="display:none; margin: 0 auto;")
+            #modalQrPlaceholder.qr-placeholder(style="margin: 0 auto;") QR
+
+      .actions
+        .ui.black.deny.button 취소
+        .ui.positive.right.labeled.icon.button(onclick="saveItem()")
+          | 저장
+          i.checkmark.icon
+
+    script(src="//code.jquery.com/jquery-1.11.0.min.js")
+    script(src="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.js")
+    script.
+      let currentMode = 'add';
+
+      // 모달 열기
+      function openModal(mode, category, name, price, barcode) {
+        currentMode = mode;
+        $('#productModal').modal('show');
+        
+        if (mode === 'edit') {
+          $('.header').text('상품 수정');
+          $('#originCategory').val(category);
+          $('#originName').val(name);
+          
+          $('#inputCategory').val(category);
+          $('#inputName').val(name);
+          $('#inputPrice').val(price);
+          $('#inputBarcode').val(barcode);
+
+          updateQrPreview(barcode);
+        } else {
+          $('.header').text('새 상품 추가');
+          $('#originCategory').val('');
+          $('#originName').val('');
+          
+          $('#inputCategory').val('');
+          $('#inputName').val('');
+          $('#inputPrice').val('');
+          $('#inputBarcode').val('');
+          
+          updateQrPreview('');
+        }
+      }
+
+      // QR 미리보기 업데이트 함수
+      function updateQrPreview(val) {
+        if (val && val.length > 0) {
+           const url = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${val}`;
+           $('#modalQrPreview').attr('src', url).show();
+           $('#modalQrPlaceholder').hide();
+        } else {
+           $('#modalQrPreview').hide();
+           $('#modalQrPlaceholder').show();
+        }
+      }
+
+      function saveItem() {
+        const category = $('#inputCategory').val().trim();
+        const name = $('#inputName').val().trim();
+        const price = $('#inputPrice').val().trim();
+        const barcode = $('#inputBarcode').val().trim();
+
+        if(!category || !name || !price) {
+          alert("카테고리, 상품명, 가격은 필수입니다.");
+          return;
+        }
+
+        const url = currentMode === 'add' ? '/saveProduct' : '/updateProduct';
+        
+        // JSON 데이터 전송
+        const data = {
+             category, name, price, barcode
+        };
+
+        if (currentMode === 'edit') {
+             data.oldCategory = $('#originCategory').val();
+             data.oldName = $('#originName').val();
+             data.newCategory = category;
+             data.newName = name;
+             data.newPrice = price;
+             data.newBarcode = barcode;
+        } 
+
+        $.ajax({
+          url: url,
+          type: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify(data),
+          success: function(response) {
+            if(response.result === 'success') {
+              location.reload(); 
+            } else {
+              alert('오류 발생: ' + response.message);
+            }
+          },
+          error: function(err) {
+            console.error(err);
+            alert('서버 오류 발생');
+          }
+        });
+      }
+
+      function deleteItem(category, name) {
+        if(!confirm('정말 삭제하시겠습니까?')) return;
+        
+        $.ajax({
+          url: '/deleteProduct',
+          type: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({ category, name }),
+          success: function(response) {
+            if(response.result === 'success') {
+              location.reload();
+            } else {
+              alert('오류: ' + response.message);
+            }
+          },
+          error: function(err) { console.error(err); }
+        });
+      }

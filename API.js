@@ -50,88 +50,189 @@ const serviceAccount = require('./serviceAccountKey.json');
 if (!admin.apps.length) {
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET // .env에 추가 권장 (예: my-app.appspot.com)
     });
 }
-
 const db = admin.firestore();
+const bucket = admin.storage().bucket(); // Storage 버킷 참조
 
 // ==========================================
-// [신규] 1. 제품 DB 조회 도구 (Mock)
+// [수정] CRUD API (이미지 업로드 제거, 바코드 추가)
 // ==========================================
-// 실제로는 여기서 CRUD 모듈을 사용하여 DB를 조회하면 됩니다.
+
+// 1. 조회
+exports.getProductsData = async function() {
+    try {
+        const snapshot = await db.collection('products').get();
+        const list = [];
+        snapshot.forEach(doc => {
+            const category = doc.id;
+            const items = doc.data();
+            for (const [name, value] of Object.entries(items)) {
+                let price = value;
+                let barcode = "";
+                
+                if (typeof value === 'object') {
+                    price = value.price;
+                    barcode = value.barcode || "";
+                }
+                list.push({ category, name, price, barcode });
+            }
+        });
+        list.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+        return list;
+    } catch (e) {
+        logger.error(e.message);
+        return [];
+    }
+};
+
+// 2. 저장 (Save)
+exports.saveProduct = async function(req, res) {
+    try {
+        // req.file 처리 제거 -> req.body.barcode 사용
+        const { category, name, price, barcode } = req.body;
+
+        await db.collection('products').doc(category).set({
+            [name]: {
+                price: price,
+                barcode: barcode // 숫자 그대로 저장
+            }
+        }, { merge: true });
+        
+        res.send({ result: "success" });
+    } catch (e) {
+        logger.error(e.message);
+        res.send({ result: "fail", message: e.message });
+    }
+};
+
+// 3. 수정 (Update)
+exports.updateProduct = async function(req, res) {
+    try {
+        const { oldCategory, oldName, newCategory, newName, newPrice, newBarcode } = req.body;
+        
+        const batch = db.batch();
+
+        // 카테고리/이름 변경 시 기존 데이터 삭제
+        if (oldCategory !== newCategory || oldName !== newName) {
+            const oldRef = db.collection('products').doc(oldCategory);
+            batch.update(oldRef, {
+                [oldName]: admin.firestore.FieldValue.delete()
+            });
+        }
+
+        // 새 데이터 저장
+        const newRef = db.collection('products').doc(newCategory);
+        batch.set(newRef, {
+            [newName]: {
+                price: newPrice,
+                barcode: newBarcode
+            }
+        }, { merge: true });
+
+        await batch.commit();
+        res.send({ result: "success" });
+
+    } catch (e) {
+        logger.error(e.message);
+        res.send({ result: "fail", message: e.message });
+    }
+};
+
+// 4. 삭제 (Delete)
+exports.deleteProduct = async function(req, res) {
+    try {
+        const { category, name } = req.body;
+        await db.collection('products').doc(category).update({
+            [name]: admin.firestore.FieldValue.delete()
+        });
+        res.send({ result: "success" });
+    } catch (e) {
+        res.send({ result: "fail", message: e.message });
+    }
+};
+
+// [수정] 1. 제품 DB 조회 도구 (바코드 -> QR 자동 변환)
 const productSearchTool = tool(
     async ({ productName }) => {
         try {
-            // [로깅]
             logger.info(`[Tool] 제품 DB 검색어: "${productName}"`);
 
-            // 1. Firestore에서 전체 상품 데이터 조회
-            // (데이터 양이 많지 않으므로 전체를 가져와서 메모리에서 검색하는 방식이 효율적입니다)
             const productsRef = db.collection('products');
             const snapshot = await productsRef.get();
 
-            if (snapshot.empty) {
-                return "현재 데이터베이스에 등록된 상품이 없습니다.";
-            }
+            if (snapshot.empty) return "데이터가 없습니다.";
 
-            // 2. 데이터를 기존 로직 처리에 맞는 구조로 변환
-            // 구조: { "키링": { "아크릴 키링": "4,000원", ... }, "티셔츠": { ... } }
             const productsDB = {};
-            snapshot.forEach(doc => {
-                // doc.id는 카테고리명(예: 키링), doc.data()는 상품 목록 객체
-                productsDB[doc.id] = doc.data();
-            });
+            snapshot.forEach(doc => { productsDB[doc.id] = doc.data(); });
 
             const searchResult = {};
-            const query = productName.replace(/\s+/g, ''); // 검색어 공백 제거
+            const query = productName.replace(/\s+/g, '');
 
-            // 3. 카테고리 및 상품 순회 (기존 로직 유지)
+            // [헬퍼] 데이터 정규화 (바코드 존재 시 QR API URL 생성)
+            const normalizeItem = (val) => {
+                let price = val;
+                let barcode = null;
+                
+                // 객체 형태인 경우 ({ price: "...", barcode: "..." })
+                if (typeof val === 'object' && val !== null) {
+                    price = val.price;
+                    barcode = val.barcode || null;
+                }
+
+                // 바코드가 있으면 QR API 주소로 변환
+                // 예: https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=12345678
+                let qrCodeUrl = null;
+                if (barcode) {
+                    qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${barcode}`;
+                }
+
+                return { price, qrCodeUrl };
+            };
+
+            // 기존 검색 로직 (Category / Item Name)
             for (const [category, items] of Object.entries(productsDB)) {
                 const cleanCategory = category.replace(/\s+/g, '');
-
-                // [Case A] 사용자가 '카테고리'를 검색한 경우 (예: "티셔츠 보여줘")
-                // 카테고리 이름이 검색어에 포함되거나, 검색어가 카테고리와 일치하면 -> 해당 카테고리 전체 반환
                 if (cleanCategory.includes(query) || query.includes(cleanCategory)) {
-                    Object.assign(searchResult, items);
-                }
-                // [Case B] 사용자가 '특정 상품'을 검색한 경우 (예: "30수")
-                else {
-                    // 상품 순회
-                    for (const [itemName, price] of Object.entries(items)) {
+                    for (const [itemName, val] of Object.entries(items)) {
+                        searchResult[itemName] = normalizeItem(val);
+                    }
+                } else {
+                    for (const [itemName, val] of Object.entries(items)) {
                         const cleanItemName = itemName.replace(/\s+/g, '');
-
-                        // 상품명에 검색어가 포함되어 있으면 결과에 추가
                         if (cleanItemName.includes(query) || query.includes(cleanItemName)) {
-                            searchResult[itemName] = price;
+                            searchResult[itemName] = normalizeItem(val);
                         }
                     }
                 }
             }
 
-            // 4. 결과 반환
             const keys = Object.keys(searchResult);
             if (keys.length > 0) {
-                logger.info(`[Tool] 검색 결과 ${keys.length}건 발견 (Firebase)`);
-                return JSON.stringify(searchResult);
+                return JSON.stringify(searchResult, null, 2);
             } else {
-                return "검색 결과가 없습니다. '티셔츠'나 '키링' 같은 카테고리나 제품명으로 다시 검색해주세요.";
+                return "검색 결과가 없습니다.";
             }
 
         } catch (error) {
-            logger.error(`[Tool Error] Firebase 조회 중 오류 발생: ${error.message}`);
-            return "죄송합니다. 상품 정보를 불러오는 도중 오류가 발생했습니다.";
+            logger.error(`[Tool Error] ${error.message}`);
+            return "오류가 발생했습니다.";
         }
     },
     {
         name: "product_db_search",
         description: `
-        쇼핑몰의 제품 가격과 재고를 조회합니다.
-        데이터는 '키링', '티셔츠' 같은 카테고리로 분류되어 있습니다.
-        
-        [검색 팁]
-        1. "티셔츠 보여줘"라고 하면 모든 티셔츠 목록을 가져옵니다.
-        2. "30수"라고 하면 특정 상품만 가져옵니다.
-        3. 검색어는 핵심 단어(예: 반팔, 키링) 위주로 입력하세요.
+        쇼핑몰의 제품 가격과 바코드(QR) 정보를 조회합니다.
+
+        [답변 작성 규칙]
+        1. **가격**: "OO은 000원이야!" 형태로 안내하세요.
+        2. **QR코드**: 조회 결과에 'qrCodeUrl'이 존재하면, 답변 마지막에 반드시 아래 마크다운 이미지 형식을 추가하세요.
+           
+           ![제품QR코드](qrCodeUrl값)
+           
+           (주의: qrCodeUrl 값을 그대로 괄호 안에 넣으세요.)
+        3. 여러 제품이 조회되면 QR코드를 안내하지 말고, 각 제품의 가격만 짧게 반말로 나열한 뒤 "바코드가 필요한 제품이 있어?"라고 물어보세요.
         `,
         schema: z.object({
             productName: z.string().describe("검색할 카테고리명 또는 제품 키워드"),
