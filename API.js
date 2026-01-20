@@ -1,6 +1,5 @@
 const CRUD = require("./CRUD");
 const moment = require('moment');
-const router = require('./router');
 require('dotenv').config();
 const cheerio = require('cheerio');
 const axios = require('axios');
@@ -1193,51 +1192,6 @@ exports.getEinkNews = async function(req, res) {
     } catch (e) {
         logger.error("getEinkNews error: " + e.message);
         res.send({ result: "fail", message: e.message });
-    }
-};
-
-// TTS 생성 API (Google Cloud TTS 사용)
-// 라우터(router.js)에 등록 필요: router.post('/generate-tts', controller.generateTTS);
-exports.generateTTS = async function(req, res) {
-    console.log("generateTTS (Google) : " + JSON.stringify(req.body));
-    try {
-        const text = req.body.text;
-        if (!text) {
-            return res.status(400).send({ result: "fail", message: "Text is required" });
-        }
-
-        // Google Cloud TTS 요청 구성
-        const request = {
-            input: { text: text },
-            // 언어 및 보이스 설정 (Neural2 모델, 남성 뉴스 톤)
-            // ko-KR-Neural2-A (여성), ko-KR-Neural2-B (여성), ko-KR-Neural2-C (남성)
-            voice: { languageCode: 'ko-KR', name: 'ko-KR-Neural2-C' },
-            // 오디오 인코딩 설정 (MP3)
-            audioConfig: { audioEncoding: 'MP3' },
-        };
-
-        // API 호출
-        const [response] = await ttsClient.synthesizeSpeech(request);
-        
-        // 오디오 콘텐츠 (Buffer)
-        const audioContent = response.audioContent;
-
-        if (!audioContent) {
-            throw new Error("No audio content returned from Google TTS");
-        }
-
-        // 클라이언트로 스트리밍 전송
-        res.writeHead(200, {
-            'Content-Type': 'audio/mpeg',
-            'Content-Length': audioContent.length
-        });
-        res.end(audioContent);
-
-    } catch (e) {
-        logger.error("generateTTS error: " + e.message);
-        if (!res.headersSent) {
-            res.status(500).send({ result: "fail", message: e.message });
-        }
     }
 };
 

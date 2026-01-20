@@ -1,15 +1,22 @@
+console.log('=== [DEBUG 1] 프로그램 시작 ===');
+
 const express = require('express');
 const app = express();
-const port = 8000;
+
+// Docker 환경변수 포트 우선 사용
+const port = process.env.PORT || 8000;
+
+console.log('=== [DEBUG 2] 기본 모듈 로딩 완료. dotenv 설정 시작 ===');
 require('dotenv').config();
 const router = require('./router');
-const CRUD= require("./CRUD");
-const API= require("./API");
+const CRUD = require("./CRUD");
+const API = require("./API");
 const common = require('./common');
+console.log('=== [DEBUG 7] 외부 라이브러리(cron, axios, redis, cors) 로딩 ===');
 const cron = require('node-cron');
 const axios = require('axios');
 const redis = require('redis');
-const cors = require('cors'); // 💡 1. cors 패키지 불러오기
+const cors = require('cors'); 
 
 // 💡 2. CORS 미들웨어 설정
 const corsOptions = {
@@ -28,10 +35,11 @@ const corsOptions = {
     'https://stock-info-smoky.vercel.app',
     'https://eink-news.vercel.app'
   ],
-  optionsSuccessStatus: 200 // 일부 레거시 브라우저를 위한 설정
+  optionsSuccessStatus: 200 
 };
 
-app.use(cors(corsOptions)); // 💡 3. CORS 미들웨어를 Express 앱에 적용
+console.log('=== [DEBUG 8] Express 설정(CORS, View Engine) 적용 ===');
+app.use(cors(corsOptions)); 
 
 app.set('view engine', 'pug');
 app.set('views', __dirname + '/views');
@@ -43,53 +51,59 @@ app.use('/manifest.json',express.static(__dirname + "/manifest.json"));
 app.use('/service-worker.js',express.static(__dirname + "/service-worker.js"));
 app.use(express.json({ limit: '50mb' }));
 
-app.get('/', router.main);
-app.get('/main', router.main2);
-app.get('/wallball', router.wallball);
-app.get('/adventure', router.adventure);
-app.get('/seoulData', router.seoulData);
-app.get('/productAdmin', router.productAdmin);
+console.log('=== [DEBUG 9] 라우트(GET/POST) 연결 시작 ===');
 
-app.post('/saveScore', API.saveScore);
-app.post('/search', API.search);
-app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
-app.post('/inqMainGameInfo', API.inqMainGameInfo);
-app.post('/generate', API.generate);
-app.post('/generateChat', API.generateChat);
-app.post('/getDailyFortune', API.getDailyFortune);
-app.post('/getOneFortune', API.getOneFortune);
-app.post('/sendKakaotalk', API.sendKakaotalk);
-app.post('/sendFortune', API.sendFortune);
-app.post('/getNews', API.getNews);
-app.post('/getEinkNews', API.getEinkNews);
-app.post('/generate-tts', API.generateTTS);
+// router 변수가 없을 경우를 대비해 안전하게 연결
+    app.get('/', router.main);
+    app.get('/main', router.main2);
+    app.get('/wallball', router.wallball);
+    app.get('/adventure', router.adventure);
+    app.get('/seoulData', router.seoulData);
+    app.get('/productAdmin', router.productAdmin);
 
-//제품 crud
-app.post('/saveProduct', API.saveProduct);
-app.post('/updateProduct', API.updateProduct);
-app.post('/deleteProduct', API.deleteProduct);
+    app.post('/saveScore', API.saveScore);
+    app.post('/search', API.search);
+    app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
+    app.post('/inqMainGameInfo', API.inqMainGameInfo);
+    app.post('/generate', API.generate);
+    app.post('/generateChat', API.generateChat);
+    app.post('/getDailyFortune', API.getDailyFortune);
+    app.post('/getOneFortune', API.getOneFortune);
+    app.post('/sendKakaotalk', API.sendKakaotalk);
+    app.post('/sendFortune', API.sendFortune);
+    app.post('/getNews', API.getNews);
+    app.post('/getEinkNews', API.getEinkNews);
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+    //제품 crud
+    app.post('/saveProduct', API.saveProduct);
+    app.post('/updateProduct', API.updateProduct);
+    app.post('/deleteProduct', API.deleteProduct);
+
+console.log(`=== [DEBUG 10] 서버 리스닝 시도 (Port: ${port}) ===`);
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`=== [SUCCESS] 서버가 정상적으로 실행되었습니다! Port: ${port} ===`);
 });
 
+// 크론잡 설정
 cron.schedule('0 * * * *', async () => {
   if (new Date().getHours() === 0) {
     console.log('한투 토큰 갱신');
     await generateToken();
     console.log('오늘의 운세 생성');
-    await API.getDailyFortune(null, null);
+    if (API) await API.getDailyFortune(null, null);
   }else if (new Date().getHours() === 8) {
     console.log('오늘의 운세톡 발송');
-    await API.sendFortune(null, null);
+    if (API) await API.sendFortune(null, null);
   }
   // 매 시간마다 E-ink 뉴스 업데이트
   console.log('뉴스 업데이트');
-  await API.getNews(null, null);
+  if (API) await API.getNews(null, null);
 });
 
 async function generateToken() {
   try {
+      // (기존 코드 동일)
       const response = await axios.post('https://openapi.koreainvestment.com:9443/oauth2/tokenP?', {
         "appkey":process.env.HANTU_APP,
         "appsecret":process.env.HANTU_SECRET,
@@ -110,7 +124,7 @@ async function generateToken() {
 
       try {
         await redisClient.set('access_token', accessToken, {
-          EX: 24 * 60 * 60 // 16 hours in seconds
+          EX: 24 * 60 * 60 
         });
         console.info('한투 토큰 갱신 : ' + accessToken);
       } catch (err) {

@@ -1,0 +1,60 @@
+name: Deploy to Rocky Linux
+
+# 언제 실행될지 정의 (main 브랜치에 push 되면 실행)
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. GitHub에서 코드 가져오기
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Docker Hub 로그인
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # 3. Docker 이미지 빌드 및 푸시
+      # (주의: Dockerfile이 프로젝트 최상단에 있어야 함)
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/phaser:latest
+
+      # 4. 서버에 접속해서 배포 명령어 실행 (SSH)
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: 22
+          # script_stop: true (명령어 중 하나라도 실패하면 중단)
+          script: |
+            # 1. 최신 이미지 다운로드
+            docker pull ${{ secrets.DOCKER_USERNAME }}/phaser:latest
+            
+            # 2. 기존 컨테이너 중지 및 삭제 (에러 무시하고 강제 삭제)
+            docker rm -f phaser || true
+            
+            # 3. 새 컨테이너 실행
+            # (.env 파일은 서버의 /root 경로에 미리 존재한다고 가정)
+            # 만약 .env 경로가 다르다면 --env-file 경로를 수정하세요.
+            docker run -d \
+              --name phaser \
+              --env-file /root/phaser.env \
+              -p 8000:8000 \
+              --restart always \
+              ${{ secrets.DOCKER_USERNAME }}/phaser:latest
+            
+            # 4. 찌꺼기 이미지 청소
+            docker image prune -f
