@@ -3,14 +3,11 @@ html
         title 근육고양이잡화점
         meta(charset="UTF-8")
         meta(name="viewport", content="width=device-width, initial-scale=1.0")
-        link(rel="manifest" href="/manifest.json")
         link(rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.8.8/dist/semantic.min.css")
         link(rel='stylesheet', href='/views/css/main.css')
     body
         center
             P
-            .ui.button#installButton(onclick="installApp()" style="display:none; ") app
-                i.icon.download(style="margin-left : 5px;")
         if local === "Y"
             #local local
     script(src="//code.jquery.com/jquery-1.11.0.min.js")

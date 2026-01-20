@@ -47,8 +47,6 @@ app.use('/script',express.static(__dirname + "/script"));
 app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
 app.use('/images',express.static(__dirname + "/images"));
-app.use('/manifest.json',express.static(__dirname + "/manifest.json"));
-app.use('/service-worker.js',express.static(__dirname + "/service-worker.js"));
 app.use(express.json({ limit: '50mb' }));
 
 console.log('=== [DEBUG 9] 라우트(GET/POST) 연결 시작 ===');
