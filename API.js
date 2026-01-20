@@ -786,8 +786,6 @@ exports.sendFortune = async function(req, res) {
     console.log("sendFortune: Processing fortune sending...");
     try {
         // --- 1. 폰번호 수집 (luckMembers) ---
-        
-        // [TEST] Firestore 조회 대신 Mock Data 사용
         const snapshot = await db.collection('luckMembers').get();
         const phoneNumbers = [];
         snapshot.forEach(doc => {
@@ -798,71 +796,59 @@ exports.sendFortune = async function(req, res) {
                 logger.warn(`Document ${doc.id} is missing 'phone' field.`);
             }
         });
-        // const phoneNumbers = ["01083151379", "01085288954"]; // 💡 MOCK DATA
-        // console.log("Phone numbers (MOCK DATA):", phoneNumbers); 
 
-        // --- 2. 운세 데이터 수집 (dailyFortunes) ---
-        console.log("Fetching fortunes from dailyFortunes/latest...");
-        let docSnap = await db.collection('dailyFortunes').doc('latest').get();
+        // [MOCK TEST용 - 필요시 주석 해제]
+        // const phoneNumbers = ["01012345678"]; 
 
-        if (!docSnap.exists) {
-            logger.warn("sendFortune: 'dailyFortunes/latest' document not found. Generating...");
-            await exports.getDailyFortune(null, null); // 운세 생성
-            await new Promise(resolve => setTimeout(resolve, 1500)); // 생성 대기
-            const newDocSnap = await db.collection('dailyFortunes').doc('latest').get();
-            if (!newDocSnap.exists) {
-                throw new Error("운세 문서를 찾을 수 없습니다. (dailyFortunes/latest)");
-            }
-            docSnap = newDocSnap; 
-        }
-
-        const fortuneData = docSnap.data();
-        let fortunes = fortuneData.fortunes;
-
-        if (!Array.isArray(fortunes) || fortunes.length === 0) {
-            logger.warn("sendFortune: 'fortunes' array is empty. Regenerating...");
-            await exports.getDailyFortune(null, null); // 운세 재생성
-            await new Promise(resolve => setTimeout(resolve, 1500)); // 생성 대기
-            const freshDocSnap = await db.collection('dailyFortunes').doc('latest').get();
-            if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
-                throw new Error("운세 데이터를 가져오지 못했습니다.");
-            }
-            fortunes = freshDocSnap.data().fortunes;
-        }
-        
-        // --- 3. 폰번호와 랜덤 운세 매칭 (JSON 배열 생성) ---
-        const fortuneMappings = phoneNumbers.map(phone => {
-            const randomIndex = Math.floor(Math.random() * fortunes.length);
-            const randomFortune = fortunes[randomIndex];
-            return { phone: phone, fortune: randomFortune };
-        });
-        console.log("Fortune Mappings (JSON Array):", fortuneMappings); 
-
-        // --- 4. Solapi 대량 발송 (send) ---
-        if (fortuneMappings.length === 0) {
+        if (phoneNumbers.length === 0) {
             logger.warn("sendFortune: No phone numbers found, nothing to send.");
             return res.send({ result: "success", op: "sendFortune", count: 0, message: "No recipients found." });
         }
 
-        // 'send'에 맞게 메시지 객체의 '배열' 형식으로 변환
-        const messagesToSend = fortuneMappings.map(item => {
-            return {
-                to: item.phone,
-                from: process.env.SOLAPI_SENDER_NUMBER,
-                text: "오늘의 운세가 도착했어요!", // 알림톡 실패 시 대체 문자
-                kakaoOptions: {
-                    pfId: "KA01PF251023155453466zUYSFWha1ci",
-                    templateId: "KA01TP251023175627378FUOi9NrdvXQ",
-                    variables: {
-                        "운세": item.fortune // 템플릿 변수 #{운세}에 매칭
+        // --- 2. [변경] 각 폰번호별 외부 API 호출하여 메시지 객체 생성 ---
+        const fortuneApiUrl = "https://musclecat-hono.musclecat.workers.dev/fortune";
+        console.log(`Fetching fortunes individually from ${fortuneApiUrl}...`);
+
+        // 병렬 처리: 모든 폰번호에 대해 동시에 API 요청을 보냅니다.
+        const messagePromises = phoneNumbers.map(async (phone) => {
+            try {
+                // 외부 API 호출 (응답이 텍스트 한 문장)
+                const response = await axios.get(fortuneApiUrl);
+                const fortuneText = response.data; 
+
+                // 메시지 객체 생성
+                return {
+                    to: phone,
+                    from: process.env.SOLAPI_SENDER_NUMBER,
+                    text: "오늘의 운세가 도착했어요!", // 알림톡 실패 시 대체 문자
+                    kakaoOptions: {
+                        pfId: "KA01PF251023155453466zUYSFWha1ci",
+                        templateId: "KA01TP251023175627378FUOi9NrdvXQ",
+                        variables: {
+                            "운세": fortuneText // 외부 API에서 받은 텍스트 매핑
+                        }
                     }
-                }
-            };
+                };
+            } catch (err) {
+                // 특정 사용자에 대한 API 호출 실패 시 로그를 남기고 null 반환 (전체 로직 중단 방지)
+                logger.error(`Failed to fetch fortune for ${phone}: ${err.message}`);
+                return null;
+            }
         });
 
+        // 모든 API 호출이 완료될 때까지 대기
+        const results = await Promise.all(messagePromises);
+
+        // 실패한 건(null)은 제외하고 발송할 메시지 목록 확정
+        const messagesToSend = results.filter(msg => msg !== null);
+
+        if (messagesToSend.length === 0) {
+            throw new Error("외부 API 호출 실패로 인해 발송할 메시지가 없습니다.");
+        }
+
+        // --- 3. Solapi 대량 발송 (send) ---
         console.log(`Attempting to send ${messagesToSend.length} Alimtalks via send()...`);
         
-        // [FIX] 'sendMany' -> 'send'. SDK는 대량 발송 시 배열을 인자로 받습니다.
         const response = await messageService.send(messagesToSend);
 
         console.log("Solapi send response: ", JSON.stringify(response));
@@ -871,14 +857,14 @@ exports.sendFortune = async function(req, res) {
             result: "success",
             op: "sendFortune",
             count: messagesToSend.length,
-            solapiResponse: response // Solapi 발송 결과 응답
+            solapiResponse: response
         });
 
     } catch (e) {
         logger.error("sendFortune error: " + e.message); 
         res.send({ result: "fail", message: e.message });
     }
-}
+};
 
 // 두 문자열의 유사도 측정 (Dice Coefficient, 0~1)
 // 제목이 60% 이상 비슷하면 중복으로 간주하기 위함
