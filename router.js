@@ -10,9 +10,7 @@ let local = "N";
 if(common.getServerIp() != "210.114.17.65") local = "Y";
 
 exports.main = async function (req,res){
-    res.render('main', { title: 'main'         
-                        ,local:local
-                });
+    res.redirect(301, 'https://musclecat-studio.com');
 }
 
 exports.main2 = async function (req,res){
