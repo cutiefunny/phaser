@@ -21,6 +21,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # [추가됨] 2.5. 보안 키 파일 생성
+      # Secrets에 저장된 JSON 내용을 꺼내서 실제 파일로 만듭니다.
+      - name: Create serviceAccountKey.json
+        run: echo '${{ secrets.FIREBASE_KEY_JSON }}' > serviceAccountKey.json
+
       # 3. Docker 이미지 빌드 및 푸시
       # (주의: Dockerfile이 프로젝트 최상단에 있어야 함)
       - name: Build and push Docker image
