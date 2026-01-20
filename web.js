@@ -90,11 +90,11 @@ cron.schedule('0 * * * *', async () => {
   if (new Date().getHours() === 0) {
     console.log('한투 토큰 갱신');
     await generateToken();
-    console.log('오늘의 운세 생성');
-    if (API) await API.getDailyFortune(null, null);
-  }else if (new Date().getHours() === 8) {
-    console.log('오늘의 운세톡 발송');
-    if (API) await API.sendFortune(null, null);
+    // console.log('오늘의 운세 생성');
+    // if (API) await API.getDailyFortune(null, null);
+  // }else if (new Date().getHours() === 8) {
+    // console.log('오늘의 운세톡 발송');
+    // if (API) await API.sendFortune(null, null);
   }
   // 매 시간마다 E-ink 뉴스 업데이트
   console.log('뉴스 업데이트');
