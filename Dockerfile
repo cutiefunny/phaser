@@ -5,6 +5,14 @@ FROM node:22-alpine
 # (혹시 빌드 중 에러나면 이 줄 주석을 푸세요)
 # RUN apk add --no-cache python3 make g++
 
+# 1. 시스템 빌드 도구 및 [추가] 타임존 데이터(tzdata) 설치
+# Alpine 리눅스는 기본적으로 타임존 데이터가 없어서 설치해야 합니다.
+RUN apk add --no-cache python3 make g++ tzdata
+
+# 2. [추가] 타임존 환경변수 설정 (서울)
+# 이제부터 서버 내의 모든 시간은 KST(서울) 기준으로 동작합니다.
+ENV TZ=Asia/Seoul
+
 WORKDIR /app
 
 # 3. 패키지 파일만 복사
