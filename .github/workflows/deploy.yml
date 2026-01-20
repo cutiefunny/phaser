@@ -1,9 +1,9 @@
 name: Deploy to Rocky Linux
 
-# 언제 실행될지 정의 (main 브랜치에 push 되면 실행)
+# 언제 실행될지 정의 (master 브랜치에 push 되면 실행)
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
   build-and-deploy:
