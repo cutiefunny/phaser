@@ -51,7 +51,7 @@ jobs:
             # 만약 .env 경로가 다르다면 --env-file 경로를 수정하세요.
             docker run -d \
               --name phaser \
-              --env-file /root/phaser.env \
+              --env-file /root/phaser/.env \
               -p 8000:8000 \
               --restart always \
               ${{ secrets.DOCKER_USERNAME }}/phaser:latest
