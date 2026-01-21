@@ -89,6 +89,9 @@ cron.schedule('0 * * * *', async () => {
     console.log('한투 토큰 갱신');
     await generateToken();
 
+    // console.log('오늘의 운세 생성');
+    // if (API) await API.getDailyFortune(null, null);
+  }else if (new Date().getHours() === 7) {
     console.log('Concept2 스냅샷 저장 API 호출');
     try {
       // 기존에 로딩된 axios를 사용하여 호출
@@ -98,9 +101,6 @@ cron.schedule('0 * * * *', async () => {
       // 에러가 발생해도 서버가 죽지 않도록 예외 처리
       console.error('Concept2 스냅샷 저장 실패:', error.message);
     }
-
-    // console.log('오늘의 운세 생성');
-    // if (API) await API.getDailyFortune(null, null);
   }else if (new Date().getHours() === 8) {
     console.log('오늘의 운세톡 발송');
     if (API) await API.sendFortune(null, null);
