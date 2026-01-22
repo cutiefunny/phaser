@@ -37,7 +37,10 @@ const corsOptions = {
     'https://stock-info-smoky.vercel.app',
     'https://eink-news.vercel.app'
   ],
-  optionsSuccessStatus: 200 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
 console.log('=== [DEBUG 8] Express 설정(CORS, View Engine) 적용 ===');
