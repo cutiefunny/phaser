@@ -30,9 +30,9 @@ const corsOptions = {
     'http://localhost:5174',
     'https://musclecat-chat.vercel.app',
     'https://react-flow-three-ecru.vercel.app',
-    'https://clt-chatbot.vercel.app/',
-    'http://202.20.84.65:10001/',
-    'http://202.20.84.65:10000/',
+    'https://clt-chatbot.vercel.app',
+    'http://202.20.84.65:10001',
+    'http://202.20.84.65:10000',
     'https://musclecat-studio.com',
     'https://stock-info-smoky.vercel.app',
     'https://eink-news.vercel.app'
