@@ -2,6 +2,8 @@ console.log('=== [DEBUG 1] 프로그램 시작 ===');
 
 const express = require('express');
 const app = express();
+// [신규] 프록시 미들웨어 추가
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Docker 환경변수 포트 우선 사용
 const port = process.env.PORT || 8000;
@@ -41,12 +43,36 @@ const corsOptions = {
 console.log('=== [DEBUG 8] Express 설정(CORS, View Engine) 적용 ===');
 app.use(cors(corsOptions)); 
 
+// ==================================================================
+// [신규] 프록시 설정 (반드시 express.json() 보다 위에 위치해야 함)
+// ==================================================================
+// 사용법: https://내도메인/fastapi/endpoint 로 요청하면 -> http://내부HTTP서버/endpoint 로 전달됨
+// 'target' 부분을 연결하려는 실제 HTTP 서버 주소로 변경하세요. (예: FastAPI가 8001번이라면 'http://localhost:8001')
+app.use('/fastapi', createProxyMiddleware({
+    target: 'http://210.114.17.65:8001', // 실제 내부 HTTP 서버 주소
+    changeOrigin: true, // 호스트 헤더를 타겟 URL로 변경
+    pathRewrite: {
+        '^/fastapi': '' // 요청 경로에서 '/fastapi' 제거 (필요시 사용)
+    },
+    onProxyReq: (proxyReq, req, res) => {
+        // 필요시 프록시 요청 로그 출력
+        // console.log(`[Proxy] ${req.method} ${req.url} -> ${proxyReq.getHeader('host')}${proxyReq.path}`);
+    },
+    onError: (err, req, res) => {
+        console.error('[Proxy Error]', err);
+        res.status(500).send('Proxy Error');
+    }
+}));
+// ==================================================================
+
 app.set('view engine', 'pug');
 app.set('views', __dirname + '/views');
 app.use('/script',express.static(__dirname + "/script"));
 app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
 app.use('/images',express.static(__dirname + "/images"));
+
+// 바디 파서는 프록시 설정 뒤에 와야 함 (프록시가 스트림을 직접 처리할 수 있도록)
 app.use(express.json({ limit: '50mb' }));
 
 console.log('=== [DEBUG 9] 라우트(GET/POST) 연결 시작 ===');

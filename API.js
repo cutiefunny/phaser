@@ -685,57 +685,57 @@ exports.getDailyFortune = async function(req, res) {
     }
 };
 
-//오늘의 운세 1개 가져오기 (Firebase Firestore 사용)
+//오늘의 운세 1개 가져오기 (외부 API + Gemini 번역)
 exports.getOneFortune = async function(req, res) {
     try {
-        let agenda = req.body ? req.body.agenda : null;
-        let document = "";
-        if (!agenda) {
-            document = "latest";
-        }else if(agenda === "연애"){
-            document = "love";
-        }
-        const fortuneRef = db.collection('dailyFortunes').doc(document || 'latest');
-        const docSnap = await fortuneRef.get();
-
-        if (!docSnap.exists) {
-            logger.warn(`Firestore에 'dailyFortunes/${document || 'latest'}' 문서가 없습니다.`);
-             // 문서가 없을 경우, getDailyFortune을 호출하여 새로 생성 시도
-             await exports.getDailyFortune(req, null); // req, res 없이 내부 호출
-             // 잠시 대기 후 다시 시도 (선택적)
-             await new Promise(resolve => setTimeout(resolve, 1000));
-             const newDocSnap = await fortuneRef.get();
-             if (!newDocSnap.exists) {
-                 throw new Error("운세 문서를 생성하지 못했습니다.");
-             }
-             docSnap = newDocSnap; // 새로 가져온 스냅샷 사용
-        }
-
-        const data = docSnap.data();
-        const fortunes = data.fortunes;
-
-        if (!Array.isArray(fortunes) || fortunes.length === 0) {
-            logger.warn("'fortunes' 배열이 비어있거나 유효하지 않습니다.");
-            // 운세 배열이 비어있을 경우, getDailyFortune을 호출하여 다시 채우기 시도
-            await exports.getDailyFortune(req, null);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const freshDocSnap = await fortuneRef.get();
-            if (!freshDocSnap.exists || !Array.isArray(freshDocSnap.data().fortunes) || freshDocSnap.data().fortunes.length === 0) {
-                throw new Error("운세 데이터를 가져오지 못했습니다.");
-            }
-            fortunes = freshDocSnap.data().fortunes; // 새로 가져온 데이터 사용
-        }
-
-        const randomIndex = Math.floor(Math.random() * fortunes.length);
-        const randomMember = fortunes[randomIndex];
-
-        console.log(`랜덤 운세: ${randomMember}`);
-        res.send({ result: "success", fortune: randomMember });
+        const fortuneMessage = await generateFortune();
+        res.send(fortuneMessage);
     } catch (e) {
         logger.error("getOneFortune 오류:", e);
         res.send({ result: "fail", message: e.message });
     }
 };
+
+async function generateFortune() {
+    try {
+        const apiKey = process.env.GOOGLE_API_KEY;
+        if (!apiKey) throw new Error("Google API Key is missing in .env");
+
+        // 1단계: 영어 명언 가져오기 (Advice Slip API)
+        const adviceResponse = await axios.get('https://api.adviceslip.com/advice');
+        if (adviceResponse.status !== 200) throw new Error('Advice API Error');
+        const originalText = adviceResponse.data.slip.advice;
+
+        // 2단계: Gemini에게 번역 요청
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+        
+        const geminiBody = {
+            contents: [{
+                parts: [{
+                    text: `Translate the following sentence into Korean efficiently and naturally, like a one-line fortune. Output only the Korean text without quotes.\n\nSentence: "${originalText}"`
+                }]
+            }]
+        };
+
+        const geminiResponse = await axios.post(geminiUrl, geminiBody, {
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (geminiResponse.status !== 200) {
+            throw new Error(`Gemini API Error: ${JSON.stringify(geminiResponse.data)}`);
+        }
+
+        // 응답에서 텍스트 추출
+        const koreanMessage = geminiResponse.data.candidates[0].content.parts[0].text.trim();
+
+        // 3단계: 결과 반환
+        return koreanMessage;
+
+    } catch (e) {
+        logger.error("getOneFortune 오류:", e);
+        throw e;
+    }
+}
 
 // 솔라피 알림톡 발송 함수
 exports.sendKakaotalk = async function(req, res) {
@@ -805,34 +805,32 @@ exports.sendFortune = async function(req, res) {
             return res.send({ result: "success", op: "sendFortune", count: 0, message: "No recipients found." });
         }
 
-        // --- 2. [변경] 각 폰번호별 외부 API 호출하여 메시지 객체 생성 ---
-        const fortuneApiUrl = "https://musclecat-hono.musclecat.workers.dev/fortune";
-        console.log(`Fetching fortunes individually from ${fortuneApiUrl}...`);
+        // --- 2. [변경] 각 폰번호별 generateFortune() 호출하여 메시지 객체 생성 ---
+        console.log(`Generating fortunes individually using generateFortune()...`);
 
-        // 병렬 처리: 모든 폰번호에 대해 동시에 API 요청을 보냅니다.
+        // 병렬 처리: 모든 폰번호에 대해 동시에 generateFortune() 호출
         const messagePromises = phoneNumbers.map(async (phone) => {
             try {
-                // 외부 API 호출 (응답이 텍스트 한 문장)
-                const response = await axios.get(fortuneApiUrl);
-                const fortuneText = response.data; 
+            // generateFortune() 호출 (한국어 운세 문장 반환)
+            const fortuneText = await generateFortune();
 
-                // 메시지 객체 생성
-                return {
-                    to: phone,
-                    from: process.env.SOLAPI_SENDER_NUMBER,
-                    text: "오늘의 운세가 도착했어요!", // 알림톡 실패 시 대체 문자
-                    kakaoOptions: {
-                        pfId: "KA01PF251023155453466zUYSFWha1ci",
-                        templateId: "KA01TP251023175627378FUOi9NrdvXQ",
-                        variables: {
-                            "운세": fortuneText // 외부 API에서 받은 텍스트 매핑
-                        }
-                    }
-                };
+            // 메시지 객체 생성
+            return {
+                to: phone,
+                from: process.env.SOLAPI_SENDER_NUMBER,
+                text: "오늘의 운세가 도착했어요!", // 알림톡 실패 시 대체 문자
+                kakaoOptions: {
+                pfId: "KA01PF251023155453466zUYSFWha1ci",
+                templateId: "KA01TP251023175627378FUOi9NrdvXQ",
+                variables: {
+                    "운세": fortuneText // generateFortune()에서 받은 텍스트 매핑
+                }
+                }
+            };
             } catch (err) {
-                // 특정 사용자에 대한 API 호출 실패 시 로그를 남기고 null 반환 (전체 로직 중단 방지)
-                logger.error(`Failed to fetch fortune for ${phone}: ${err.message}`);
-                return null;
+            // 특정 사용자에 대한 운세 생성 실패 시 로그를 남기고 null 반환 (전체 로직 중단 방지)
+            logger.error(`Failed to generate fortune for ${phone}: ${err.message}`);
+            return null;
             }
         });
 
