@@ -10,10 +10,20 @@ const port = process.env.PORT || 8000;
 
 console.log('=== [DEBUG 2] 기본 모듈 로딩 완료. dotenv 설정 시작 ===');
 require('dotenv').config();
+
 const router = require('./router');
 const CRUD = require("./CRUD");
-const API = require("./API");
 const common = require('./common');
+
+// ==================================================================
+// [수정] 분산된 API 모듈 로딩
+// ==================================================================
+// const API = require("./API"); // 기존 통합 파일 주석 처리 또는 삭제
+const apiAgent = require('./api_agent'); // 챗봇, 검색, LangGraph
+const apiNews = require('./api_news');   // 뉴스 수집 및 조회
+const apiMisc = require('./api_misc');   // 운세, 상품관리, 알림톡, 기타
+const apiSns = require('./api_sns');   // SNS 게시글 및 댓글 관리
+
 console.log('=== [DEBUG 7] 외부 라이브러리(cron, axios, redis, cors) 로딩 ===');
 const cron = require('node-cron');
 const axios = require('axios');
@@ -49,16 +59,13 @@ app.use(cors(corsOptions));
 // ==================================================================
 // [신규] 프록시 설정 (반드시 express.json() 보다 위에 위치해야 함)
 // ==================================================================
-// 사용법: https://내도메인/fastapi/endpoint 로 요청하면 -> http://내부HTTP서버/endpoint 로 전달됨
-// 'target' 부분을 연결하려는 실제 HTTP 서버 주소로 변경하세요. (예: FastAPI가 8001번이라면 'http://localhost:8001')
 app.use('/fastapi', createProxyMiddleware({
     target: 'http://210.114.17.65:8001', // 실제 내부 HTTP 서버 주소
-    changeOrigin: true, // 호스트 헤더를 타겟 URL로 변경
+    changeOrigin: true, 
     pathRewrite: {
-        '^/fastapi': '' // 요청 경로에서 '/fastapi' 제거 (필요시 사용)
+        '^/fastapi': '' 
     },
     onProxyReq: (proxyReq, req, res) => {
-        // 필요시 프록시 요청 로그 출력
         // console.log(`[Proxy] ${req.method} ${req.url} -> ${proxyReq.getHeader('host')}${proxyReq.path}`);
     },
     onError: (err, req, res) => {
@@ -75,36 +82,52 @@ app.use('/views',express.static(__dirname + "/views"));
 app.use('/resource',express.static(__dirname + "/resource"));
 app.use('/images',express.static(__dirname + "/images"));
 
-// 바디 파서는 프록시 설정 뒤에 와야 함 (프록시가 스트림을 직접 처리할 수 있도록)
+// 바디 파서는 프록시 설정 뒤에 와야 함
 app.use(express.json({ limit: '50mb' }));
 
 console.log('=== [DEBUG 9] 라우트(GET/POST) 연결 시작 ===');
 
-// router 변수가 없을 경우를 대비해 안전하게 연결
-    app.get('/', router.main);
-    app.get('/main', router.main2);
-    app.get('/wallball', router.wallball);
-    app.get('/adventure', router.adventure);
-    app.get('/seoulData', router.seoulData);
-    app.get('/productAdmin', router.productAdmin);
+// [GET] 페이지 렌더링 (router.js 사용 - 변경 없음)
+app.get('/', router.main);
+app.get('/main', router.main2);
+app.get('/wallball', router.wallball);
+app.get('/adventure', router.adventure);
+app.get('/seoulData', router.seoulData);
+app.get('/productAdmin', router.productAdmin);
 
-    app.post('/saveScore', API.saveScore);
-    app.post('/search', API.search);
-    app.post('/getLiveMatchInfo', API.getLiveMatchInfo);
-    app.post('/inqMainGameInfo', API.inqMainGameInfo);
-    app.post('/generate', API.generate);
-    app.post('/generateChat', API.generateChat);
-    app.post('/getDailyFortune', API.getDailyFortune);
-    app.post('/getOneFortune', API.getOneFortune);
-    app.post('/sendKakaotalk', API.sendKakaotalk);
-    app.post('/sendFortune', API.sendFortune);
-    app.post('/getNews', API.getNews);
-    app.post('/getEinkNews', API.getEinkNews);
+// [POST] 분산된 API 연결
 
-    //제품 crud
-    app.post('/saveProduct', API.saveProduct);
-    app.post('/updateProduct', API.updateProduct);
-    app.post('/deleteProduct', API.deleteProduct);
+// 1. Agent 관련 (채팅, 검색) -> api_agent.js
+app.post('/search', apiAgent.search);
+app.post('/generate', apiAgent.generate);
+app.post('/generateChat', apiAgent.generateChat);
+
+// 2. News 관련 (뉴스 수집, 조회) -> api_news.js
+app.post('/getNews', apiNews.getNews);
+app.post('/getEinkNews', apiNews.getEinkNews);
+
+// 3. Misc 관련 (운세, 알림톡, 게임정보, 상품관리 등) -> api_misc.js
+app.post('/saveScore', apiMisc.saveScore);
+app.post('/getLiveMatchInfo', apiMisc.getLiveMatchInfo);
+app.post('/inqMainGameInfo', apiMisc.inqMainGameInfo);
+
+app.post('/getDailyFortune', apiMisc.getDailyFortune);
+app.post('/getOneFortune', apiMisc.getOneFortune);
+app.post('/sendKakaotalk', apiMisc.sendKakaotalk);
+app.post('/sendFortune', apiMisc.sendFortune);
+
+// 4. SNS 관련 (E-ink SNS)
+app.post('/sns/getPosts', apiSns.getPosts);       // 피드 불러오기
+app.post('/sns/createPost', apiSns.createPost);   // 글 쓰기
+app.post('/sns/deletePost', apiSns.deletePost);   // 글 삭제
+app.post('/sns/likePost', apiSns.likePost);       // 좋아요
+app.post('/sns/getComments', apiSns.getComments); // 댓글 보기
+app.post('/sns/addComment', apiSns.addComment);   // 댓글 쓰기
+
+// 제품 CRUD -> api_misc.js
+app.post('/saveProduct', apiMisc.saveProduct);
+app.post('/updateProduct', apiMisc.updateProduct);
+app.post('/deleteProduct', apiMisc.deleteProduct);
 
 console.log(`=== [DEBUG 10] 서버 리스닝 시도 (Port: ${port}) ===`);
 
@@ -112,36 +135,42 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`=== [SUCCESS] 서버가 정상적으로 실행되었습니다! Port: ${port} ===`);
 });
 
-// 크론잡 설정
+// ==================================================================
+// [수정] 크론잡 설정 (분산된 모듈 함수 호출)
+// ==================================================================
 cron.schedule('0 * * * *', async () => {
-  if (new Date().getHours() === 0) {
+  const currentHour = new Date().getHours();
+
+  if (currentHour === 0) {
     console.log('한투 토큰 갱신');
     await generateToken();
 
     // console.log('오늘의 운세 생성');
-    // if (API) await API.getDailyFortune(null, null);
-  }else if (new Date().getHours() === 7) {
+    // if (apiMisc) await apiMisc.getDailyFortune(null, null);
+
+  } else if (currentHour === 7) {
     console.log('Concept2 스냅샷 저장 API 호출');
     try {
-      // 기존에 로딩된 axios를 사용하여 호출
       await axios.get('https://khanfit.vercel.app/api/snapshot');
       console.log('Concept2 스냅샷 저장 성공');
     } catch (error) {
-      // 에러가 발생해도 서버가 죽지 않도록 예외 처리
       console.error('Concept2 스냅샷 저장 실패:', error.message);
     }
-  }else if (new Date().getHours() === 8) {
+
+  } else if (currentHour === 8) {
     console.log('오늘의 운세톡 발송');
-    if (API) await API.sendFortune(null, null);
+    // API.sendFortune -> apiMisc.sendFortune
+    if (apiMisc) await apiMisc.sendFortune(null, null);
   }
-  // 매 시간마다 E-ink 뉴스 업데이트
+
+  // 매 시간 뉴스 업데이트
   console.log('뉴스 업데이트');
-  if (API) await API.getNews(null, null);
+  // API.getNews -> apiNews.getNews
+  if (apiNews) await apiNews.getNews(null, null);
 });
 
 async function generateToken() {
   try {
-      // (기존 코드 동일)
       const response = await axios.post('https://openapi.koreainvestment.com:9443/oauth2/tokenP?', {
         "appkey":process.env.HANTU_APP,
         "appsecret":process.env.HANTU_SECRET,
