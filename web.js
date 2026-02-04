@@ -45,7 +45,8 @@ const corsOptions = {
     'http://202.20.84.65:10000',
     'https://musclecat-studio.com',
     'https://stock-info-smoky.vercel.app',
-    'https://eink-news.vercel.app'
+    'https://eink-news.vercel.app',
+    'https://musclecat-sns.vercel.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
