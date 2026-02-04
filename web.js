@@ -124,6 +124,10 @@ app.post('/sns/deletePost', apiSns.deletePost);   // 글 삭제
 app.post('/sns/likePost', apiSns.likePost);       // 좋아요
 app.post('/sns/getComments', apiSns.getComments); // 댓글 보기
 app.post('/sns/addComment', apiSns.addComment);   // 댓글 쓰기
+app.post('/sns/updateComment', apiSns.updateComment); // 댓글 수정
+app.post('/sns/deleteComment', apiSns.deleteComment); // 댓글 삭제
+app.post('/sns/autoCreatePost', apiSns.autoCreatePost); // AI 자동 게시
+app.post('/sns/autoAddComment', apiSns.autoAddComment); // AI 자동 댓글
 
 // 제품 CRUD -> api_misc.js
 app.post('/saveProduct', apiMisc.saveProduct);
@@ -168,6 +172,14 @@ cron.schedule('0 * * * *', async () => {
   console.log('뉴스 업데이트');
   // API.getNews -> apiNews.getNews
   if (apiNews) await apiNews.getNews(null, null);
+  
+  // AI 자동 게시글 작성 (매 시간)
+  console.log('AI 자동 게시글 작성 시도');
+  if (apiSns) await apiSns.autoCreatePost(null, null);
+  
+  // AI 자동 댓글 작성 (매 시간)
+  console.log('AI 자동 댓글 작성 시도');
+  if (apiSns) await apiSns.autoAddComment(null, null);
 });
 
 async function generateToken() {
