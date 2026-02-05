@@ -139,13 +139,13 @@ exports.callOpenAISNS = async function(prompt) {
                 { role: "system", content: characterPrefix },
                 { role: "user", content: prompt }
             ],
-            max_completion_tokens: 600
+            max_completion_tokens: 2000
         }, {
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json'
             },
-            timeout: 10000
+            timeout: 30000
         });
 
         if (

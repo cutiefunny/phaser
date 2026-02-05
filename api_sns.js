@@ -440,19 +440,27 @@ exports.autoAddComment = async function(req, res) {
 
         logger.info(`[SNS] Auto comment attempt by: ${nextCommenter} on post by ${postAuthor}`);
 
-        // 4. 기존 댓글들을 모두 가져와 컨텍스트로 사용
-        const allCommentsSnapshot = await db.collection(COL_COMMENTS)
+        // 4. 최근 5개 댓글만 가져와 컨텍스트로 사용 (토큰 절약)
+        const recentCommentsSnapshot = await db.collection(COL_COMMENTS)
             .where('postId', '==', postId)
-            .orderBy('createdAt', 'asc')
+            .orderBy('createdAt', 'desc')
+            .limit(5) // 최근 5개만
             .get();
 
         let existingCommentsText = '';
-        if (!allCommentsSnapshot.empty) {
-            const commentsList = allCommentsSnapshot.docs.map(doc => {
-                const data = doc.data();
-                return `${data.author}: ${data.content}`;
-            });
-            existingCommentsText = '\n\n[기존 댓글들]:\n' + commentsList.join('\n');
+        if (!recentCommentsSnapshot.empty) {
+            // 최근 댓글을 시간순으로 정렬
+            const commentsList = recentCommentsSnapshot.docs
+                .reverse() // 오래된 순으로 재정렬
+                .map(doc => {
+                    const data = doc.data();
+                    // 댓글 내용도 최대 100자로 제한
+                    const truncatedContent = data.content.length > 100 
+                        ? data.content.substring(0, 100) + '...' 
+                        : data.content;
+                    return `${data.author}: ${truncatedContent}`;
+                });
+            existingCommentsText = '\n\n[최근 댓글 ${commentsList.length}개]:\n' + commentsList.join('\n');
         } else {
             existingCommentsText = '\n\n[기존 댓글]: 아직 댓글이 없습니다.';
         }
@@ -559,12 +567,12 @@ ${postContent}${existingCommentsText}
 /**
  * AI가 자율적으로 실시간 이슈/AI 소식을 찾아 게시글 작성
  * - Cron에서 호출
- * - Gemini와 GPT가 번갈아 작성
- * - getTrend로 실시간 트렌드 키워드 획득 후 검색하여 포스트 작성
+ * - 실시간 트렌드: Gemini/GPT 번갈아 작성 (키워드 검색 기반)
+ * - IT/주식 트렌드: RSS 기사를 직접 포스팅 (토큰 절약)
  */
 exports.autoCreatePost = async function(req, res) {
     try {
-        // 최근 게시글 확인 (마지막 작성자 파악)
+        // 최근 게시글 확인 (마지막 작성자 파악 - realtime용)
         const recentSnapshot = await db.collection(COL_POSTS)
             .orderBy('createdAt', 'desc')
             .limit(1)
@@ -573,7 +581,6 @@ exports.autoCreatePost = async function(req, res) {
         let nextAuthor = 'Gemini'; // 기본값
         if (!recentSnapshot.empty) {
             const lastPost = recentSnapshot.docs[0].data();
-            // Gemini 다음은 GPT, GPT 다음은 Gemini
             if (lastPost.author === 'Gemini') {
                 nextAuthor = 'GPT';
             } else if (lastPost.author === 'GPT') {
@@ -581,74 +588,80 @@ exports.autoCreatePost = async function(req, res) {
             }
         }
 
-        logger.info(`[SNS] Auto post attempt by: ${nextAuthor}`);
+        logger.info(`[SNS] Auto post attempt, next author: ${nextAuthor}`);
 
-        // 1. 실시간 트렌드 키워드 가져오기
-        const trendKeywords = await exports.getTrend(null, null);
+        // 1. 시간 기반으로 트렌드 소스 선택 (시간마다 순환)
+        const currentHour = new Date().getHours();
+        const trendIndex = currentHour % 3;
         
-        if (!trendKeywords || trendKeywords.length === 0) {
-            logger.info(`[SNS] No trend keywords found. Skipping post.`);
-            if (res) return res.send({ result: "success", message: "No trends to post" });
-            return;
-        }
-
-        logger.info(`[SNS] Got ${trendKeywords.length} trend keywords`);
-
-        // 2. 최근 3개 포스트의 내용 가져오기 (주제 중복 방지)
-        const recentPostsSnapshot = await db.collection(COL_POSTS)
-            .orderBy('createdAt', 'desc')
-            .limit(3)
-            .get();
-
-        const recentPostContents = recentPostsSnapshot.docs.map(doc => doc.data().content || '').join(' ');
-        logger.info(`[SNS] Recent posts content for comparison: ${recentPostContents.substring(0, 100)}...`);
-
-        // 3. 겹치지 않는 키워드 선택 (최대 5번 시도)
-        let selectedKeyword = null;
-        let availableKeywords = [...trendKeywords]; // 복사본 생성
+        let trendSource = '';
+        let postContent = '';
+        let authorName = nextAuthor;
         
-        for (let attempt = 0; attempt < 5 && availableKeywords.length > 0; attempt++) {
-            // 랜덤하게 키워드 선택
-            const randomIndex = Math.floor(Math.random() * availableKeywords.length);
-            const candidate = availableKeywords[randomIndex];
+        if (trendIndex === 0) {
+            // ===== 실시간 일반 트렌드 (키워드 기반) =====
+            trendSource = 'realtime';
+            logger.info(`[SNS] Using realtime trend (Ezme)`);
             
-            // 최근 포스트에 이 키워드가 포함되어 있는지 확인
-            if (!recentPostContents.includes(candidate)) {
-                selectedKeyword = candidate;
-                logger.info(`[SNS] Selected unique keyword: ${selectedKeyword}`);
-                break;
-            } else {
-                logger.info(`[SNS] Keyword "${candidate}" overlaps with recent posts, trying another...`);
-                // 사용한 키워드 제거
-                availableKeywords.splice(randomIndex, 1);
+            const trendKeywords = await exports.getTrend(null, null);
+            
+            if (!trendKeywords || trendKeywords.length === 0) {
+                logger.info(`[SNS] No trend keywords found. Skipping post.`);
+                if (res) return res.send({ result: "success", message: "No trends to post" });
+                return;
             }
-        }
-
-        // 모든 키워드가 겹치는 경우 fallback
-        if (!selectedKeyword && availableKeywords.length > 0) {
-            selectedKeyword = availableKeywords[0];
-            logger.info(`[SNS] All keywords overlap, using first available: ${selectedKeyword}`);
-        }
-
-        if (!selectedKeyword) {
-            logger.info(`[SNS] No suitable keyword found. Skipping post.`);
-            if (res) return res.send({ result: "success", message: "No suitable keyword" });
-            return;
-        }
-
-        // 4. 선택한 키워드로 인터넷 검색
-        logger.info(`[SNS] Searching web for: ${selectedKeyword}`);
-        const searchResults = await searchWeb(selectedKeyword);
-        
-        let searchContext = '';
-        if (searchResults && searchResults.length > 10) {
-            searchContext = `\n\n[검색 결과]:\n${searchResults.substring(0, 500)}`;
-        } else {
-            searchContext = `\n\n[검색 결과]: 검색 결과를 찾지 못했습니다. 키워드 자체에 대해 작성하세요.`;
-        }
-
-        // 5. AI가 검색 결과를 보고 게시글 작성
-        const prompt = `
+            
+            logger.info(`[SNS] Got ${trendKeywords.length} trend keywords`);
+            
+            // 최근 3개 포스트의 내용 가져오기 (주제 중복 방지)
+            const recentPostsSnapshot = await db.collection(COL_POSTS)
+                .orderBy('createdAt', 'desc')
+                .limit(3)
+                .get();
+            
+            const recentPostContents = recentPostsSnapshot.docs.map(doc => doc.data().content || '').join(' ');
+            
+            // 겹치지 않는 키워드 선택 (최대 5번 시도)
+            let selectedKeyword = null;
+            let availableKeywords = [...trendKeywords];
+            
+            for (let attempt = 0; attempt < 5 && availableKeywords.length > 0; attempt++) {
+                const randomIndex = Math.floor(Math.random() * availableKeywords.length);
+                const candidate = availableKeywords[randomIndex];
+                
+                if (!recentPostContents.includes(candidate)) {
+                    selectedKeyword = candidate;
+                    logger.info(`[SNS] Selected unique keyword: ${selectedKeyword}`);
+                    break;
+                } else {
+                    logger.info(`[SNS] Keyword "${candidate}" overlaps, trying another...`);
+                    availableKeywords.splice(randomIndex, 1);
+                }
+            }
+            
+            if (!selectedKeyword && availableKeywords.length > 0) {
+                selectedKeyword = availableKeywords[0];
+            }
+            
+            if (!selectedKeyword) {
+                logger.info(`[SNS] No suitable keyword found. Skipping post.`);
+                if (res) return res.send({ result: "success", message: "No suitable keyword" });
+                return;
+            }
+            
+            // 키워드로 검색
+            logger.info(`[SNS] Searching web for: ${selectedKeyword}`);
+            const searchResults = await searchWeb(selectedKeyword);
+            
+            let searchContext = '';
+            if (searchResults && searchResults.length > 10) {
+                searchContext = `\n\n[검색 결과]:\n${searchResults.substring(0, 500)}`;
+            } else {
+                searchContext = `\n\n[검색 결과]: 검색 결과를 찾지 못했습니다. 키워드 자체에 대해 작성하세요.`;
+            }
+            
+            // Gemini 또는 GPT로 포스트 생성
+            const prompt = `
 당신은 SNS에 게시글을 작성하는 AI입니다.
 다음 실시간 트렌드 키워드와 관련 검색 결과를 보고, 짧은 게시글을 작성하세요.
 
@@ -674,65 +687,142 @@ exports.autoCreatePost = async function(req, res) {
 - 작성 안 함: "SKIP"
 - 작성: 게시글 본문만 출력 (다른 텍스트 없이)
 `;
-
-        let postContent = "";
-        
-        try {
-            if (nextAuthor === 'Gemini') {
-                postContent = await callGemini(prompt);
-            } else {
-                postContent = await callOpenAI(prompt);
+            
+            try {
+                if (nextAuthor === 'Gemini') {
+                    postContent = await callGemini(prompt);
+                } else {
+                    postContent = await callOpenAI(prompt);
+                }
+            } catch (error) {
+                logger.error(`[SNS] ${nextAuthor} API Error: ${error.message}`);
+                if (res) return res.send({ result: "fail", message: error.message });
+                return;
             }
-        } catch (error) {
-            logger.error(`[SNS] ${nextAuthor} API Error: ${error.message}`);
-            if (res) return res.send({ result: "fail", message: error.message });
+            
+            postContent = postContent.trim();
+            
+            // 응답 정제: 불필요한 메타 텍스트 제거
+            postContent = postContent
+                .replace(/^---+\s*/gm, '')
+                .replace(/\s*---+$/gm, '')
+                .replace(/^\[게시글 내용\]\s*/i, '')
+                .replace(/^\[작성\]\s*/i, '')
+                .replace(/#\S+/g, '')
+                .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+                .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+                .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+                .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+                .replace(/[\u{2600}-\u{26FF}]/gu, '')
+                .replace(/[\u{2700}-\u{27BF}]/gu, '')
+                .trim();
+            
+            // SKIP 판단
+            if (postContent.includes("SKIP") || postContent.length < 10) {
+                logger.info(`[SNS] ${nextAuthor} decided to skip posting.`);
+                if (res) return res.send({ result: "success", message: "AI skipped posting" });
+                return;
+            }
+            
+            logger.info(`[SNS] ${nextAuthor} generated post for keyword: ${selectedKeyword}`);
+            
+        } else {
+            // ===== IT/주식 트렌드 (RSS 기사 직접 포스팅) =====
+            let rssUrl = '';
+            
+            if (trendIndex === 1) {
+                trendSource = 'it';
+                rssUrl = 'https://news.hada.io/rss/news';
+                authorName = 'GeekNews';
+                logger.info(`[SNS] Using IT trend (GeekNews RSS)`);
+            } else {
+                trendSource = 'stock';
+                rssUrl = 'https://www.hankyung.com/feed/finance';
+                authorName = 'Hankyung';
+                logger.info(`[SNS] Using stock trend (Hankyung RSS)`);
+            }
+            
+            // RSS 피드 파싱
+            const Parser = require('rss-parser');
+            const parser = new Parser();
+            
+            try {
+                const feed = await parser.parseURL(rssUrl);
+                
+                if (!feed.items || feed.items.length === 0) {
+                    logger.info(`[SNS] No RSS items found from ${rssUrl}. Skipping post.`);
+                    if (res) return res.send({ result: "success", message: "No RSS items" });
+                    return;
+                }
+                
+                // 랜덤하게 기사 선택 (최신 20개 중)
+                const maxItems = Math.min(feed.items.length, 20);
+                const randomIndex = Math.floor(Math.random() * maxItems);
+                const selectedItem = feed.items[randomIndex];
+                
+                logger.info(`[SNS] Selected RSS item: ${selectedItem.title}`);
+                
+                // 기사 제목과 요약을 조합하여 200자 이내로 포스팅
+                const title = selectedItem.title || '';
+                const description = (selectedItem.contentSnippet || selectedItem.content || '')
+                    .replace(/<[^>]*>/g, '')  // HTML 태그 제거
+                    .replace(/\n+/g, ' ')     // 개행을 공백으로
+                    .trim();
+                
+                // 200자 제한
+                let combinedText = '';
+                if (description && description.length > 0) {
+                    combinedText = `${title}\n\n${description}`;
+                } else {
+                    combinedText = title;
+                }
+                
+                if (combinedText.length > 200) {
+                    combinedText = combinedText.substring(0, 197) + '...';
+                }
+                
+                postContent = combinedText;
+                
+                logger.info(`[SNS] ${authorName} RSS post prepared: ${postContent.substring(0, 50)}...`);
+                
+            } catch (error) {
+                logger.error(`[SNS] Error parsing RSS from ${rssUrl}:`, error);
+                if (res) return res.send({ result: "error", message: "RSS parsing failed" });
+                return;
+            }
+        }
+        
+        // 2. 최종 검증
+        if (!postContent || postContent.trim().length === 0) {
+            logger.info(`[SNS] Generated post content is empty. Skipping.`);
+            if (res) return res.send({ result: "success", message: "Empty post content" });
             return;
         }
 
-        postContent = postContent.trim();
-
-        // 응답 정제: 불필요한 메타 텍스트 제거
-        postContent = postContent
-            .replace(/^---+\s*/gm, '')  // 구분자 제거
-            .replace(/\s*---+$/gm, '')
-            .replace(/^\[게시글 내용\]\s*/i, '')  // 메타 텍스트 제거
-            .replace(/^\[작성\]\s*/i, '')
-            .replace(/#\S+/g, '')  // 해시태그 제거
-            .replace(/[\u{1F600}-\u{1F64F}]/gu, '')  // 이모지 제거 (이모티콘)
-            .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')  // 이모지 제거 (기호)
-            .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')  // 이모지 제거 (교통)
-            .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')  // 이모지 제거 (국기)
-            .replace(/[\u{2600}-\u{26FF}]/gu, '')    // 이모지 제거 (기타)
-            .replace(/[\u{2700}-\u{27BF}]/gu, '')    // 이모지 제거 (딩뱃)
-            .trim();
-
-        // 6. SKIP 판단 - 작성하지 않기로 결정
-        if (postContent.includes("SKIP") || postContent.length < 10) {
-            logger.info(`[SNS] ${nextAuthor} decided to skip posting.`);
-            if (res) return res.send({ result: "success", message: "AI skipped posting" });
-            return;
-        }
-
-        // 7. 게시글 저장
+        // 3. Firestore에 저장
         const newPost = {
-            author: nextAuthor,
-            content: postContent,
+            author: authorName,
+            content: postContent.trim(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
             likes: 0,
-            commentCount: 0,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            commentCount: 0
         };
 
         const docRef = await db.collection(COL_POSTS).add(newPost);
-        
-        logger.info(`[SNS] Auto Post Created by ${nextAuthor}: ${docRef.id}`);
-        logger.info(`[SNS] Keyword: ${selectedKeyword}`);
-        logger.info(`[SNS] Content: ${postContent.substring(0, 50)}...`);
-        
-        if (res) res.send({ result: "success", postId: docRef.id, author: nextAuthor, keyword: selectedKeyword });
+        logger.info(`[SNS] Auto post created by ${authorName} (source: ${trendSource}), ID: ${docRef.id}`);
 
-    } catch (e) {
-        logger.error(`[SNS] autoCreatePost Error: ${e.message}`);
-        if (res) res.send({ result: "fail", message: e.message });
+        if (res) {
+            res.send({ 
+                result: "success", 
+                postId: docRef.id, 
+                author: authorName,
+                source: trendSource,
+                content: postContent.trim().substring(0, 100)
+            });
+        }
+    } catch (error) {
+        logger.error('[SNS] Error in autoCreatePost:', error);
+        if (res) res.send({ result: "error", message: error.message });
     }
 };
 
@@ -1232,6 +1322,294 @@ ${JSON.stringify(rawTrends)}
 };
 
 /**
+ * 긱뉴스 RSS 피드에서 IT 관련 트렌드 키워드 추출
+ * @param {object} req - Express request
+ * @param {object} res - Express response
+ * @returns {Promise<Array>} IT 트렌드 키워드 목록
+ */
+exports.getItTrend = async function(req, res) {
+    const GEEKNEWS_RSS = 'http://feeds.feedburner.com/geeknews-feed';
+
+    try {
+        logger.info('[GeekNews] Fetching IT trends from RSS feed');
+
+        // 1. RSS 피드 파싱
+        const Parser = require('rss-parser');
+        const parser = new Parser({
+            timeout: 5000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
+        const feed = await parser.parseURL(GEEKNEWS_RSS);
+
+        if (!feed.items || feed.items.length === 0) {
+            throw new Error("No items found in RSS feed");
+        }
+
+        logger.info(`[GeekNews] Found ${feed.items.length} articles`);
+
+        // 2. 제목에서 키워드 추출 (최근 20개 기사)
+        const rawKeywords = new Set();
+        
+        feed.items.slice(0, 20).forEach(item => {
+            if (item.title) {
+                const keywords = extractKeywords(item.title);
+                keywords.forEach(kw => {
+                    // 2글자 이상의 유의미한 키워드만 추가
+                    if (kw.length >= 2) {
+                        rawKeywords.add(kw);
+                    }
+                });
+            }
+        });
+
+        const rawKeywordArray = Array.from(rawKeywords);
+        logger.info(`[GeekNews] Extracted ${rawKeywordArray.length} raw keywords`);
+
+        if (rawKeywordArray.length === 0) {
+            throw new Error("No keywords extracted from RSS feed");
+        }
+
+        // 3. Gemini로 IT/기술 관련 키워드만 필터링
+        let finalKeywords = [];
+
+        try {
+            const prompt = `
+다음은 긱뉴스 RSS 피드에서 추출한 키워드 리스트입니다.
+이 중에서 **IT, 기술, 프로그래밍, 개발, 소프트웨어, 하드웨어**와 관련된 키워드만 선택하세요.
+
+[입력 키워드]:
+${JSON.stringify(rawKeywordArray)}
+
+[선택 기준]:
+- IT 기술, 프로그래밍 언어, 프레임워크, 라이브러리
+- 소프트웨어, 앱, 서비스, 플랫폼
+- 하드웨어, 디바이스, 가젯
+- AI, 머신러닝, 데이터, 클라우드
+- 개발 도구, 개발 방법론
+- 기술 기업, 스타트업 (단, IT 관련인 경우만)
+
+[제외 기준]:
+- 일반 명사, 동사, 형용사
+- 정치, 경제, 사회 이슈
+- 연예, 스포츠
+- 너무 포괄적인 단어 ("기술", "개발", "서비스" 등 단독)
+
+[출력 조건]:
+1. 설명 없이 오직 **JSON 배열**만 출력하세요.
+2. 중복 제거하세요.
+3. IT/기술 관련성이 높은 키워드 최대 15개 선택하세요.
+4. 포맷 예시: ["Python", "React", "ChatGPT", "AWS"]
+
+출력:`;
+
+            const aiResponse = await callGemini(prompt);
+            
+            // JSON 파싱
+            let jsonText = aiResponse
+                .replace(/```json\s*/g, '')
+                .replace(/```javascript\s*/g, '')
+                .replace(/```\s*/g, '')
+                .trim();
+            
+            const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+            if (arrayMatch) {
+                jsonText = arrayMatch[0];
+            }
+            
+            finalKeywords = JSON.parse(jsonText);
+            
+            if (!Array.isArray(finalKeywords) || finalKeywords.length === 0) {
+                throw new Error("Empty or invalid array from AI");
+            }
+
+            // 중복 제거 및 정제
+            const uniqueKeywords = [...new Set(finalKeywords.map(k => k.trim()))];
+            finalKeywords = uniqueKeywords.filter(k => k.length > 0);
+
+            logger.info(`[GeekNews] Filtered IT keywords (${finalKeywords.length}): ${finalKeywords.slice(0, 5).join(', ')}...`);
+
+        } catch (llmError) {
+            logger.error(`[GeekNews] Gemini Filtering Failed: ${llmError.message}`);
+            // 필터링 실패 시 원본 키워드 중 상위 10개 사용
+            const uniqueRaw = [...new Set(rawKeywordArray.map(k => k.trim()))];
+            finalKeywords = uniqueRaw.filter(k => k.length > 0).slice(0, 10);
+            logger.info(`[GeekNews] Using raw keywords as fallback (${finalKeywords.length})`);
+        }
+
+        // 4. 응답
+        if (res) res.send({ result: "success", data: finalKeywords, source: "geeknews" });
+        return finalKeywords;
+
+    } catch (e) {
+        logger.error(`[GeekNews] Error: ${e.message}`);
+        
+        // 최종 fallback: IT 관련 기본 키워드
+        const fallbackKeywords = [
+            'AI',
+            'ChatGPT',
+            'Python',
+            'JavaScript',
+            'React',
+            'Node.js',
+            'AWS',
+            'Docker',
+            '클라우드',
+            '머신러닝'
+        ];
+        
+        if (res) res.send({ result: "success", data: fallbackKeywords, source: "fallback" });
+        return fallbackKeywords;
+    }
+};
+
+/**
+ * 한국경제 RSS 피드에서 주식/금융 관련 트렌드 키워드 추출
+ * @param {object} req - Express request
+ * @param {object} res - Express response
+ * @returns {Promise<Array>} 주식/금융 트렌드 키워드 목록
+ */
+exports.getStockTrend = async function(req, res) {
+    const HANKYUNG_RSS = 'https://www.hankyung.com/feed/finance';
+
+    try {
+        logger.info('[Hankyung] Fetching stock/finance trends from RSS feed');
+
+        // 1. RSS 피드 파싱
+        const Parser = require('rss-parser');
+        const parser = new Parser({
+            timeout: 5000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
+        const feed = await parser.parseURL(HANKYUNG_RSS);
+
+        if (!feed.items || feed.items.length === 0) {
+            throw new Error("No items found in RSS feed");
+        }
+
+        logger.info(`[Hankyung] Found ${feed.items.length} articles`);
+
+        // 2. 제목에서 키워드 추출 (최근 20개 기사)
+        const rawKeywords = new Set();
+        
+        feed.items.slice(0, 20).forEach(item => {
+            if (item.title) {
+                const keywords = extractKeywords(item.title);
+                keywords.forEach(kw => {
+                    // 2글자 이상의 유의미한 키워드만 추가
+                    if (kw.length >= 2) {
+                        rawKeywords.add(kw);
+                    }
+                });
+            }
+        });
+
+        const rawKeywordArray = Array.from(rawKeywords);
+        logger.info(`[Hankyung] Extracted ${rawKeywordArray.length} raw keywords`);
+
+        if (rawKeywordArray.length === 0) {
+            throw new Error("No keywords extracted from RSS feed");
+        }
+
+        // 3. Gemini로 주식/금융 관련 키워드만 필터링
+        let finalKeywords = [];
+
+        try {
+            const prompt = `
+다음은 한국경제 금융 RSS 피드에서 추출한 키워드 리스트입니다.
+이 중에서 **주식, 금융, 경제, 투자, 기업**과 관련된 키워드만 선택하세요.
+
+[입력 키워드]:
+${JSON.stringify(rawKeywordArray)}
+
+[선택 기준]:
+- 기업명, 브랜드명 (삼성전자, 네이버, 카카오 등)
+- 산업 분야 (반도체, 자동차, 바이오, 금융 등)
+- 주식 관련 용어 (배당, IPO, 상장 등)
+- 경제 지표, 금융 상품
+- 투자 관련 키워드
+- 국가/지역 (투자 관련인 경우)
+
+[제외 기준]:
+- 정치인 이름, 정치 이슈
+- 일반 명사, 동사, 형용사
+- 연예, 스포츠
+- 너무 포괄적인 단어 ("기업", "경제", "금융" 등 단독)
+
+[출력 조건]:
+1. 설명 없이 오직 **JSON 배열**만 출력하세요.
+2. 중복 제거하세요.
+3. 주식/금융 관련성이 높은 키워드 최대 15개 선택하세요.
+4. 포맷 예시: ["삼성전자", "반도체", "배당", "IPO"]
+
+출력:`;
+
+            const aiResponse = await callGemini(prompt);
+            
+            // JSON 파싱
+            let jsonText = aiResponse
+                .replace(/```json\s*/g, '')
+                .replace(/```javascript\s*/g, '')
+                .replace(/```\s*/g, '')
+                .trim();
+            
+            const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+            if (arrayMatch) {
+                jsonText = arrayMatch[0];
+            }
+            
+            finalKeywords = JSON.parse(jsonText);
+            
+            if (!Array.isArray(finalKeywords) || finalKeywords.length === 0) {
+                throw new Error("Empty or invalid array from AI");
+            }
+
+            // 중복 제거 및 정제
+            const uniqueKeywords = [...new Set(finalKeywords.map(k => k.trim()))];
+            finalKeywords = uniqueKeywords.filter(k => k.length > 0);
+
+            logger.info(`[Hankyung] Filtered stock keywords (${finalKeywords.length}): ${finalKeywords.slice(0, 5).join(', ')}...`);
+
+        } catch (llmError) {
+            logger.error(`[Hankyung] Gemini Filtering Failed: ${llmError.message}`);
+            // 필터링 실패 시 원본 키워드 중 상위 10개 사용
+            const uniqueRaw = [...new Set(rawKeywordArray.map(k => k.trim()))];
+            finalKeywords = uniqueRaw.filter(k => k.length > 0).slice(0, 10);
+            logger.info(`[Hankyung] Using raw keywords as fallback (${finalKeywords.length})`);
+        }
+
+        // 4. 응답
+        if (res) res.send({ result: "success", data: finalKeywords, source: "hankyung" });
+        return finalKeywords;
+
+    } catch (e) {
+        logger.error(`[Hankyung] Error: ${e.message}`);
+        
+        // 최종 fallback: 주식 관련 기본 키워드
+        const fallbackKeywords = [
+            '삼성전자',
+            'SK하이닉스',
+            '네이버',
+            '카카오',
+            '현대차',
+            '반도체',
+            '배터리',
+            '바이오',
+            '금융',
+            '부동산'
+        ];
+        
+        if (res) res.send({ result: "success", data: fallbackKeywords, source: "fallback" });
+        return fallbackKeywords;
+    }
+};
+
+/**
  * 텍스트에서 주요 키워드 추출 헬퍼 함수
  * @param {string} text - 추출할 텍스트
  * @returns {Array<string>} 키워드 배열
@@ -1240,7 +1618,7 @@ function extractKeywords(text) {
     if (!text) return [];
     
     // 불용어 제거 및 키워드 추출
-    const stopWords = ['의', '가', '이', '은', '들', '는', '좀', '잘', '걍', '과', '도', '를', '으로', '자', '에', '와', '한', '하다'];
+    const stopWords = ['의', '가', '이', '은', '들', '는', '좋', '잘', '걍', '과', '도', '를', '으로', '자', '에', '와', '한', '하다'];
     const words = text
         .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ') // 특수문자 제거
         .split(/\s+/)
