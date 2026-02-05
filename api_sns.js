@@ -71,7 +71,7 @@ exports.createPost = async function(req, res) {
         }
 
         const newPost = {
-            author: author || 'User',
+            author: author || '근육고양이',
             content: content,
             likes: 0,
             commentCount: 0,
@@ -83,7 +83,7 @@ exports.createPost = async function(req, res) {
         logger.info(`[SNS] New Post by ${newPost.author}: ${docRef.id}`);
         
         // User가 작성한 게시글이면 AI가 즉각 댓글 작성
-        if (newPost.author === 'User') {
+        if (newPost.author === '근육고양이') {
             logger.info(`[SNS] Triggering immediate AI comment for User's post`);
             // 비동기로 실행하여 응답 지연 방지
             setImmediate(() => {
@@ -204,7 +204,7 @@ exports.addComment = async function(req, res) {
             // 1. 댓글 생성
             t.set(commentRef, {
                 postId: postId,
-                author: author || 'User',
+                author: author || '근육고양이',
                 content: content,
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -218,7 +218,7 @@ exports.addComment = async function(req, res) {
         logger.info(`[SNS] New Comment on ${postId} by ${author}`);
         
         // User가 작성한 댓글이면 AI가 즉각 답변 댓글 작성
-        if ((author || 'User') === 'User') {
+        if ((author || '근육고양이') === '근육고양이') {
             logger.info(`[SNS] Triggering immediate AI reply for User's comment`);
             // 비동기로 실행하여 응답 지연 방지
             setImmediate(() => {
