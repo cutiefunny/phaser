@@ -3,6 +3,7 @@ const logger = require("./logger");
 const moment = require('moment');
 const { callGemini, callOpenAI, callGeminiSNS, callOpenAISNS } = require('./llmHelpers');
 const axios = require('axios');
+const cheerio = require('cheerio');
 
 // 컬렉션 이름 상수 정의
 const COL_POSTS = 'sns_posts';
@@ -318,6 +319,67 @@ exports.deleteComment = async function(req, res) {
 // ==========================================
 
 /**
+ * 24시간이 지난 게시글 자동 삭제
+ * - Cron에서 호출
+ * - 게시글과 관련된 댓글도 함께 삭제
+ */
+exports.autoDeleteOldPosts = async function(req, res) {
+    try {
+        // 24시간 전 시간 계산
+        const twentyFourHoursAgo = new Date();
+        twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+
+        // 24시간 이전에 작성된 게시글 조회
+        const oldPostsSnapshot = await db.collection(COL_POSTS)
+            .where('createdAt', '<', admin.firestore.Timestamp.fromDate(twentyFourHoursAgo))
+            .get();
+
+        if (oldPostsSnapshot.empty) {
+            logger.info(`[SNS] No old posts to delete.`);
+            if (res) return res.send({ result: "success", message: "No old posts to delete" });
+            return;
+        }
+
+        let deletedCount = 0;
+        const batch = db.batch();
+
+        for (const postDoc of oldPostsSnapshot.docs) {
+            const postId = postDoc.id;
+            
+            // 해당 게시글의 댓글들도 삭제
+            const commentsSnapshot = await db.collection(COL_COMMENTS)
+                .where('postId', '==', postId)
+                .get();
+
+            commentsSnapshot.docs.forEach(commentDoc => {
+                batch.delete(commentDoc.ref);
+            });
+
+            // 게시글 삭제
+            batch.delete(postDoc.ref);
+            
+            deletedCount++;
+            logger.info(`[SNS] Marking post ${postId} and its ${commentsSnapshot.size} comments for deletion`);
+        }
+
+        // 배치 실행
+        await batch.commit();
+
+        logger.info(`[SNS] Auto deleted ${deletedCount} old posts (older than 24 hours)`);
+        
+        if (res) res.send({ 
+            result: "success", 
+            deletedCount: deletedCount,
+            message: `${deletedCount} old posts deleted`
+        });
+
+    } catch (e) {
+        logger.error(`[SNS] autoDeleteOldPosts Error: ${e.message}`);
+        if (res) res.send({ result: "fail", message: e.message });
+    }
+};
+
+/**
  * AI가 자율적으로 최근 게시글에 댓글 작성
  * - Cron에서 호출
  * - 가장 최근 게시글 확인
@@ -498,6 +560,7 @@ ${postContent}${existingCommentsText}
  * AI가 자율적으로 실시간 이슈/AI 소식을 찾아 게시글 작성
  * - Cron에서 호출
  * - Gemini와 GPT가 번갈아 작성
+ * - getTrend로 실시간 트렌드 키워드 획득 후 검색하여 포스트 작성
  */
 exports.autoCreatePost = async function(req, res) {
     try {
@@ -520,31 +583,85 @@ exports.autoCreatePost = async function(req, res) {
 
         logger.info(`[SNS] Auto post attempt by: ${nextAuthor}`);
 
-        // 1. 최신 뉴스/이슈 검색
-        const newsKeywords = await searchLatestNews();
+        // 1. 실시간 트렌드 키워드 가져오기
+        const trendKeywords = await exports.getTrend(null, null);
         
-        if (!newsKeywords || newsKeywords.length === 0) {
-            logger.info(`[SNS] No interesting news found. Skipping post.`);
-            if (res) return res.send({ result: "success", message: "No news to post" });
+        if (!trendKeywords || trendKeywords.length === 0) {
+            logger.info(`[SNS] No trend keywords found. Skipping post.`);
+            if (res) return res.send({ result: "success", message: "No trends to post" });
             return;
         }
 
-        // 2. AI가 뉴스를 보고 게시글 작성 여부 판단 및 작성
+        logger.info(`[SNS] Got ${trendKeywords.length} trend keywords`);
+
+        // 2. 최근 3개 포스트의 내용 가져오기 (주제 중복 방지)
+        const recentPostsSnapshot = await db.collection(COL_POSTS)
+            .orderBy('createdAt', 'desc')
+            .limit(3)
+            .get();
+
+        const recentPostContents = recentPostsSnapshot.docs.map(doc => doc.data().content || '').join(' ');
+        logger.info(`[SNS] Recent posts content for comparison: ${recentPostContents.substring(0, 100)}...`);
+
+        // 3. 겹치지 않는 키워드 선택 (최대 5번 시도)
+        let selectedKeyword = null;
+        let availableKeywords = [...trendKeywords]; // 복사본 생성
+        
+        for (let attempt = 0; attempt < 5 && availableKeywords.length > 0; attempt++) {
+            // 랜덤하게 키워드 선택
+            const randomIndex = Math.floor(Math.random() * availableKeywords.length);
+            const candidate = availableKeywords[randomIndex];
+            
+            // 최근 포스트에 이 키워드가 포함되어 있는지 확인
+            if (!recentPostContents.includes(candidate)) {
+                selectedKeyword = candidate;
+                logger.info(`[SNS] Selected unique keyword: ${selectedKeyword}`);
+                break;
+            } else {
+                logger.info(`[SNS] Keyword "${candidate}" overlaps with recent posts, trying another...`);
+                // 사용한 키워드 제거
+                availableKeywords.splice(randomIndex, 1);
+            }
+        }
+
+        // 모든 키워드가 겹치는 경우 fallback
+        if (!selectedKeyword && availableKeywords.length > 0) {
+            selectedKeyword = availableKeywords[0];
+            logger.info(`[SNS] All keywords overlap, using first available: ${selectedKeyword}`);
+        }
+
+        if (!selectedKeyword) {
+            logger.info(`[SNS] No suitable keyword found. Skipping post.`);
+            if (res) return res.send({ result: "success", message: "No suitable keyword" });
+            return;
+        }
+
+        // 4. 선택한 키워드로 인터넷 검색
+        logger.info(`[SNS] Searching web for: ${selectedKeyword}`);
+        const searchResults = await searchWeb(selectedKeyword);
+        
+        let searchContext = '';
+        if (searchResults && searchResults.length > 10) {
+            searchContext = `\n\n[검색 결과]:\n${searchResults.substring(0, 500)}`;
+        } else {
+            searchContext = `\n\n[검색 결과]: 검색 결과를 찾지 못했습니다. 키워드 자체에 대해 작성하세요.`;
+        }
+
+        // 5. AI가 검색 결과를 보고 게시글 작성
         const prompt = `
 당신은 SNS에 게시글을 작성하는 AI입니다.
-다음 최신 뉴스/이슈 목록을 보고, 흥미롭고 중요한 것이 있다면 짧은 게시글을 작성하세요.
+다음 실시간 트렌드 키워드와 관련 검색 결과를 보고, 짧은 게시글을 작성하세요.
 
-[뉴스 목록]:
-${newsKeywords.map((item, idx) => `${idx + 1}. ${item}`).join('\n')}
+[트렌드 키워드]: ${selectedKeyword}${searchContext}
 
 [작성 규칙]:
-1. AI, 기술, 프로그래밍, 실시간 트렌드와 관련된 내용이면 좋습니다.
-2. 정치, 광고, 스팸성 내용은 작성하지 마세요.
-3. 흥미롭지 않거나 중요하지 않다고 판단되면 "SKIP"이라고만 출력하세요.
-4. 작성할 경우, 200자 이내로 간결하게 작성하세요.
-5. 자연스러운 한국어로 작성하세요.
-6. 제목 형식이 아닌 본문 형식으로 작성하세요.
-7. SNS에서 흔히 볼 수 있는 친근한 톤으로 작성하세요.
+1. 트렌드 키워드와 검색 결과를 바탕으로 흥미로운 게시글을 작성하세요.
+2. 검색 결과가 없어도 키워드 자체에 대해 작성할 수 있습니다.
+3. 200자 이내로 간결하게 작성하세요.
+4. 자연스러운 한국어로 작성하세요.
+5. SNS에서 흔히 볼 수 있는 친근한 톤으로 작성하세요.
+6. 정치, 광고, 스팸성 내용은 작성하지 마세요.
+7. 작성이 부적절하다고 판단되면 "SKIP"이라고만 출력하세요.
 
 [금지 사항]:
 - 이모지 사용 금지
@@ -589,14 +706,14 @@ ${newsKeywords.map((item, idx) => `${idx + 1}. ${item}`).join('\n')}
             .replace(/[\u{2700}-\u{27BF}]/gu, '')    // 이모지 제거 (딩뱃)
             .trim();
 
-        // 3. SKIP 판단 - 작성하지 않기로 결정
+        // 6. SKIP 판단 - 작성하지 않기로 결정
         if (postContent.includes("SKIP") || postContent.length < 10) {
             logger.info(`[SNS] ${nextAuthor} decided to skip posting.`);
             if (res) return res.send({ result: "success", message: "AI skipped posting" });
             return;
         }
 
-        // 4. 게시글 저장
+        // 7. 게시글 저장
         const newPost = {
             author: nextAuthor,
             content: postContent,
@@ -608,9 +725,10 @@ ${newsKeywords.map((item, idx) => `${idx + 1}. ${item}`).join('\n')}
         const docRef = await db.collection(COL_POSTS).add(newPost);
         
         logger.info(`[SNS] Auto Post Created by ${nextAuthor}: ${docRef.id}`);
+        logger.info(`[SNS] Keyword: ${selectedKeyword}`);
         logger.info(`[SNS] Content: ${postContent.substring(0, 50)}...`);
         
-        if (res) res.send({ result: "success", postId: docRef.id, author: nextAuthor });
+        if (res) res.send({ result: "success", postId: docRef.id, author: nextAuthor, keyword: selectedKeyword });
 
     } catch (e) {
         logger.error(`[SNS] autoCreatePost Error: ${e.message}`);
@@ -994,4 +1112,141 @@ async function searchLatestNews() {
         logger.error(`[SNS] searchLatestNews Error: ${error.message}`);
         return [];
     }
+}
+
+exports.getTrend = async function(req, res) {
+    const EZME_URL = 'https://rank.ezme.net/';
+
+    try {
+        // 1. 크롤링 (Scraping)
+        const response = await axios.get(EZME_URL, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.google.com/'
+            },
+            timeout: 5000
+        });
+
+        const $ = cheerio.load(response.data);
+        const rawTrendsSet = new Set(); // 중복 제거를 위한 Set
+
+        $('.rank_word a').each((i, elem) => {
+            if (rawTrendsSet.size >= 20) return false; // 20개 수집되면 중단
+            const keyword = $(elem).text().trim();
+            // 공백 정규화 및 중복 체크
+            if (keyword) {
+                const normalized = keyword.replace(/\s+/g, ' '); // 연속 공백을 하나로
+                rawTrendsSet.add(normalized);
+            }
+        });
+
+        const rawTrends = Array.from(rawTrendsSet);
+        logger.info(`[Ezme] Raw keywords (${rawTrends.length}): ${rawTrends.join(', ')}`);
+
+        if (rawTrends.length === 0) {
+            throw new Error("No keywords found from HTML");
+        }
+
+        // 2. Gemini 필터링 (Filtering)
+        let finalTrends = [];
+        
+        try {
+            const prompt = `
+다음은 현재 한국의 실시간 검색어 리스트입니다.
+아래 카테고리에 해당하는 키워드를 **모두 제거**하세요:
+
+[제거 대상 - 정치/정책]:
+- 정당, 대통령, 국회의원, 장관, 시장, 도지사, 국회, 청와대, 정부
+- 선거, 투표, 공약, 정책, 법안, 조례, 규제, 개정안
+- 여당, 야당, 의원, 대선, 총선, 보궐선거
+- 정치인 이름 (김, 이, 박, 윤 등으로 시작하는 정치인)
+- 정치 이슈, 정치 스캔들, 정치 논란
+
+[제거 대상 - 스포츠]:
+- 축구, 야구, 농구, 배구, 골프, 테니스
+- 올림픽, 월드컵, 아시안게임, 리그
+- 선수 이름, 감독 이름, 경기 결과, 점수
+
+[유지 대상]:
+- 연예인, 드라마, 영화, 예능
+- IT 기술, 제품 출시, 앱, 서비스
+- 경제 (주식 제외), 날씨, 생활 정보
+- 사건사고, 밈(Meme), 유행어
+
+[입력 리스트]:
+${JSON.stringify(rawTrends)}
+
+[출력 조건]:
+1. 설명이나 인사말 없이 오직 **JSON 배열**만 출력하세요.
+2. 중복된 키워드는 하나만 남기고 모두 제거하세요.
+3. 정치/정책 관련은 조금이라도 의심되면 과감히 제거하세요.
+4. 포맷 예시: ["아이폰16", "뉴진스", "장마철 날씨"]
+
+출력:`;
+
+            const aiResponse = await callGemini(prompt);
+            
+            // 마크다운 코드 블록 제거 (```json, ```, ``` 등)
+            let jsonText = aiResponse
+                .replace(/```json\s*/g, '')
+                .replace(/```javascript\s*/g, '')
+                .replace(/```\s*/g, '')
+                .trim();
+            
+            // JSON 배열만 추출 (첫 번째 [ 부터 마지막 ] 까지)
+            const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+            if (arrayMatch) {
+                jsonText = arrayMatch[0];
+            }
+            
+            finalTrends = JSON.parse(jsonText);
+            
+            // 배열이고 비어있지 않은지 확인
+            if (!Array.isArray(finalTrends) || finalTrends.length === 0) {
+                throw new Error("Empty or invalid array from AI");
+            }
+
+            // 중복 제거 (AI가 중복을 남겼을 경우 대비)
+            const uniqueTrends = [...new Set(finalTrends.map(t => t.trim()))];
+            finalTrends = uniqueTrends.filter(t => t.length > 0);
+
+            logger.info(`[Ezme] Filtered keywords (${finalTrends.length}): ${finalTrends.slice(0, 5).join(', ')}...`);
+
+        } catch (llmError) {
+            logger.error(`[Ezme] Gemini Filtering Failed: ${llmError.message}`);
+            // 필터링 실패 시 원본에서도 중복 제거 후 10개 사용
+            const uniqueRaw = [...new Set(rawTrends.map(t => t.trim()))];
+            finalTrends = uniqueRaw.filter(t => t.length > 0).slice(0, 10);
+            logger.info(`[Ezme] Using raw trends as fallback (${finalTrends.length})`);
+        }
+
+        // 3. 응답 (Response)
+        if (res) res.send({ result: "success", data: finalTrends });
+        return finalTrends;
+
+    } catch (e) {
+        logger.error(`[Ezme] Critical Error: ${e.message}`);
+        if (res) res.send({ result: "fail", message: e.message });
+        return [];
+    }
+};
+
+/**
+ * 텍스트에서 주요 키워드 추출 헬퍼 함수
+ * @param {string} text - 추출할 텍스트
+ * @returns {Array<string>} 키워드 배열
+ */
+function extractKeywords(text) {
+    if (!text) return [];
+    
+    // 불용어 제거 및 키워드 추출
+    const stopWords = ['의', '가', '이', '은', '들', '는', '좀', '잘', '걍', '과', '도', '를', '으로', '자', '에', '와', '한', '하다'];
+    const words = text
+        .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ') // 특수문자 제거
+        .split(/\s+/)
+        .filter(word => word.length >= 2) // 2글자 이상
+        .filter(word => !stopWords.includes(word))
+        .slice(0, 3); // 상위 3개만
+    
+    return words;
 }

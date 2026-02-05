@@ -128,6 +128,8 @@ app.post('/sns/updateComment', apiSns.updateComment); // 댓글 수정
 app.post('/sns/deleteComment', apiSns.deleteComment); // 댓글 삭제
 app.post('/sns/autoCreatePost', apiSns.autoCreatePost); // AI 자동 게시
 app.post('/sns/autoAddComment', apiSns.autoAddComment); // AI 자동 댓글
+app.post('/sns/autoDeleteOldPosts', apiSns.autoDeleteOldPosts); // 24시간 지난 게시글 자동 삭제
+app.get('/sns/getTrend', apiSns.getTrend); // Ezme 실시간 트렌드
 
 // 제품 CRUD -> api_misc.js
 app.post('/saveProduct', apiMisc.saveProduct);
@@ -180,6 +182,10 @@ cron.schedule('0 * * * *', async () => {
   // AI 자동 댓글 작성 (매 시간)
   console.log('AI 자동 댓글 작성 시도');
   if (apiSns) await apiSns.autoAddComment(null, null);
+  
+  // 24시간 지난 게시글 자동 삭제 (매 시간)
+  console.log('오래된 게시글 삭제 시도');
+  if (apiSns) await apiSns.autoDeleteOldPosts(null, null);
 });
 
 async function generateToken() {

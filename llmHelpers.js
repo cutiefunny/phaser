@@ -139,7 +139,6 @@ exports.callOpenAISNS = async function(prompt) {
                 { role: "system", content: characterPrefix },
                 { role: "user", content: prompt }
             ],
-            temperature: 0.7,
             max_completion_tokens: 600
         }, {
             headers: {
