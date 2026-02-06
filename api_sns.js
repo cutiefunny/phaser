@@ -755,12 +755,77 @@ exports.autoCreatePost = async function(req, res) {
                     return;
                 }
                 
-                // 랜덤하게 기사 선택 (최신 20개 중)
-                const maxItems = Math.min(feed.items.length, 20);
-                const randomIndex = Math.floor(Math.random() * maxItems);
-                const selectedItem = feed.items[randomIndex];
+                let selectedItem = null;
                 
-                logger.info(`[SNS] Selected RSS item: ${selectedItem.title}`);
+                if (trendSource === 'it') {
+                    // IT 트렌드: 쉬운 기사만 선택
+                    logger.info(`[SNS] Filtering easy IT articles from ${feed.items.length} items`);
+                    
+                    // 최신 10개 기사 가져오기
+                    const candidates = feed.items.slice(0, 10);
+                    
+                    // 각 기사의 제목과 요약 추출
+                    const articleSummaries = candidates.map((item, idx) => {
+                        const title = item.title || '';
+                        const snippet = (item.contentSnippet || item.content || '')
+                            .replace(/<[^>]*>/g, '')
+                            .replace(/\n+/g, ' ')
+                            .trim()
+                            .substring(0, 150);
+                        return `[${idx}] ${title}\n${snippet}`;
+                    }).join('\n\n');
+                    
+                    // Gemini에게 가장 쉬운 기사 선택 요청
+                    const filterPrompt = `다음은 IT 기술 뉴스 목록입니다. 이 중에서 일반인이 이해하기 쉽고, 전문 용어가 적으며, 흥미로운 기사 하나를 선택해주세요.
+
+${articleSummaries}
+
+[선택 기준]:
+- 전문적이거나 어려운 기술 용어가 적을 것
+- 일반인도 이해할 수 있는 내용일 것
+- 너무 개발자 중심적이지 않을 것
+- 흥미롭고 대중적인 주제일 것
+
+[출력 형식]:
+선택한 기사의 번호만 출력하세요. (예: 3)
+만약 적합한 기사가 없으면 "SKIP"이라고만 출력하세요.`;
+                    
+                    try {
+                        const aiResponse = await callGemini(filterPrompt);
+                        const selectedIndex = parseInt(aiResponse.trim());
+                        
+                        if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < candidates.length) {
+                            selectedItem = candidates[selectedIndex];
+                            logger.info(`[SNS] AI selected easy article #${selectedIndex}: ${selectedItem.title}`);
+                        } else if (aiResponse.includes('SKIP')) {
+                            logger.info(`[SNS] No easy IT articles found. Skipping post.`);
+                            if (res) return res.send({ result: "success", message: "No easy articles" });
+                            return;
+                        } else {
+                            // Fallback: 첫 번째 기사 선택
+                            selectedItem = candidates[0];
+                            logger.info(`[SNS] AI response unclear, using first article`);
+                        }
+                    } catch (error) {
+                        logger.error(`[SNS] Error filtering IT articles: ${error.message}`);
+                        // Fallback: 랜덤 선택
+                        const randomIdx = Math.floor(Math.random() * candidates.length);
+                        selectedItem = candidates[randomIdx];
+                        logger.info(`[SNS] Fallback to random article`);
+                    }
+                } else {
+                    // 주식 트렌드: 랜덤 선택 (기존 방식)
+                    const maxItems = Math.min(feed.items.length, 20);
+                    const randomIndex = Math.floor(Math.random() * maxItems);
+                    selectedItem = feed.items[randomIndex];
+                    logger.info(`[SNS] Selected random stock article: ${selectedItem.title}`);
+                }
+                
+                if (!selectedItem) {
+                    logger.info(`[SNS] No article selected. Skipping post.`);
+                    if (res) return res.send({ result: "success", message: "No article selected" });
+                    return;
+                }
                 
                 // 기사 제목과 요약을 조합하여 200자 이내로 포스팅
                 const title = selectedItem.title || '';
