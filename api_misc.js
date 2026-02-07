@@ -308,3 +308,42 @@ exports.saveScore = async function (req, res){
     let result = await CRUD.searchData("getScore", "wallballshot");
     res.send({op:"saveScore", result:result});
 };
+
+// ==========================================
+// Exaone 채팅 API
+// ==========================================
+
+exports.chatExaone = async function (req, res) {
+    try {
+        const { callExaone } = require('./llmHelpers');
+        
+        let prompt = req.body.prompt;
+        
+        if (!prompt) {
+            return res.send({ 
+                result: "fail", 
+                message: "prompt가 필요합니다." 
+            });
+        }
+
+        logger.info(`[Exaone Chat] 요청: ${prompt.substring(0, 50)}...`);
+        
+        const messages = [{ role: "user", content: prompt }];
+        const text = await callExaone(messages, "You are a helpful assistant.");
+        
+        logger.info(`[Exaone Chat] 응답 생성 완료`);
+        
+        res.send({ 
+            result: "success", 
+            op: "chatExaone",
+            message: text 
+        });
+
+    } catch (error) {
+        logger.error(`[Exaone Chat Error] ${error.message}`);
+        res.send({ 
+            result: "fail", 
+            message: error.message 
+        });
+    }
+};

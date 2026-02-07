@@ -169,3 +169,99 @@ exports.callOpenAISNS = async function(prompt) {
         throw error;
     }
 };
+
+/**
+ * [SNS용] Exaone (Ollama) 호출 (균형잡힌 관점, 반말)
+ * - Ollama에서 실행되는 exaone3.5:7.8b-instruct-q4_K_M 모델
+ * - 항상 반말 사용
+ */
+exports.callExaoneSNS = async function(prompt) {
+    try {
+        const characterPrefix = `
+인터넷에서 흔히 볼 수 있는 반말체로 간결하게 작성해줘.
+`;
+
+        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
+        const url = `${baseUrl}/api/chat`;
+        
+        const response = await axios.post(url, {
+            model: "exaone3.5:7.8b-instruct-q4_K_M",
+            messages: [
+                { role: "system", content: characterPrefix },
+                { role: "user", content: prompt }
+            ],
+            stream: false
+        }, {
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            timeout: 30000
+        });
+
+        if (
+            response.data && 
+            response.data.message &&
+            response.data.message.content
+        ) {
+            return response.data.message.content.trim();
+        } else {
+            logger.error(`[Exaone SNS Error] Invalid response structure: ${JSON.stringify(response.data)}`);
+            throw new Error("Exaone response structure is invalid (content missing).");
+        }
+
+    } catch (error) {
+        if (error.response) {
+            logger.error(`[Exaone SNS API Error] Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+            throw new Error(`Exaone API Error: ${error.response.data?.error || error.message}`);
+        }
+        throw error;
+    }
+};
+
+/**
+ * [헬퍼] Exaone 채팅 API 호출 (일반 대화용)
+ * - Ollama에서 실행되는 exaone3.5 모델
+ * - 시스템 프롬프트와 사용자 메시지를 받아 응답 생성
+ */
+exports.callExaone = async function(messages, systemPrompt = "You are a helpful assistant.") {
+    try {
+        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
+        const url = `${baseUrl}/api/chat`;
+        
+        // messages 배열에 시스템 메시지 추가
+        const formattedMessages = [
+            { role: "system", content: systemPrompt },
+            ...messages
+        ];
+        
+        const response = await axios.post(url, {
+            model: "exaone3.5:7.8b-instruct-q4_K_M",
+            messages: formattedMessages,
+            stream: false
+        }, {
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            timeout: 60000
+        });
+
+        if (
+            response.data && 
+            response.data.message &&
+            response.data.message.content
+        ) {
+            return response.data.message.content.trim();
+        } else {
+            logger.error(`[Exaone Error] Invalid response structure: ${JSON.stringify(response.data)}`);
+            throw new Error("Exaone response structure is invalid (content missing).");
+        }
+
+    } catch (error) {
+        if (error.response) {
+            logger.error(`[Exaone API Error] Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+            throw new Error(`Exaone API Error: ${error.response.data?.error || error.message}`);
+        }
+        logger.error(`[Exaone Error] ${error.message}`);
+        throw error;
+    }
+};

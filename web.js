@@ -117,6 +117,9 @@ app.post('/getOneFortune', apiMisc.getOneFortune);
 app.post('/sendKakaotalk', apiMisc.sendKakaotalk);
 app.post('/sendFortune', apiMisc.sendFortune);
 
+// Exaone 채팅 API
+app.post('/chatExaone', apiMisc.chatExaone);
+
 // 4. SNS 관련 (E-ink SNS)
 app.post('/sns/getPosts', apiSns.getPosts);       // 피드 불러오기
 app.post('/sns/createPost', apiSns.createPost);   // 글 쓰기

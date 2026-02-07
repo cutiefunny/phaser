@@ -1,13 +1,30 @@
 const { db, admin } = require('./firebaseConfig');
 const logger = require("./logger");
 const moment = require('moment');
-const { callGemini, callOpenAI, callGeminiSNS, callOpenAISNS } = require('./llmHelpers');
+const { callGemini, callOpenAI, callGeminiSNS, callOpenAISNS, callExaoneSNS } = require('./llmHelpers');
 const axios = require('axios');
 const cheerio = require('cheerio');
 
 // 컬렉션 이름 상수 정의
 const COL_POSTS = 'sns_posts';
 const COL_COMMENTS = 'sns_comments';
+
+// ==========================================
+// AI 작성자 닉네임 (한 곳에서 관리)
+// ==========================================
+const AUTHOR_NAMES = {
+    GEMINI: '잼미니',
+    GPT: '쥐피티',
+    HANKYUNG: '여의도',
+    GEEKNEWS: '공돌이뉴스',
+    EXAONE: '라마',
+    USER: '근육고양이'
+};
+
+// Exaone 사용 가능 여부 캐시 (1분마다 재확인)
+let exaoneAvailable = false;
+let lastExaoneCheck = 0;
+const EXAONE_CHECK_INTERVAL = 60000; // 1분
 
 // ==========================================
 // 1. 게시글 (Post) CRUD
@@ -42,7 +59,7 @@ exports.getPosts = async function(req, res) {
 
             return {
                 id: doc.id,
-                author: data.author || 'User', // 'User', 'Gemini', 'GPT'
+                author: data.author || AUTHOR_NAMES.USER,
                 content: data.content,
                 likes: data.likes || 0,
                 commentCount: data.commentCount || 0,
@@ -72,7 +89,7 @@ exports.createPost = async function(req, res) {
         }
 
         const newPost = {
-            author: author || '근육고양이',
+            author: author || AUTHOR_NAMES.USER,
             content: content,
             likes: 0,
             commentCount: 0,
@@ -84,7 +101,7 @@ exports.createPost = async function(req, res) {
         logger.info(`[SNS] New Post by ${newPost.author}: ${docRef.id}`);
         
         // User가 작성한 게시글이면 AI가 즉각 댓글 작성 (번갈아가며)
-        if (newPost.author === '근육고양이') {
+        if (newPost.author === AUTHOR_NAMES.USER) {
             logger.info(`[SNS] Triggering immediate AI comment for User's post`);
             // 비동기로 실행하여 응답 지연 방지
             setImmediate(() => {
@@ -205,7 +222,7 @@ exports.addComment = async function(req, res) {
             // 1. 댓글 생성
             t.set(commentRef, {
                 postId: postId,
-                author: author || '근육고양이',
+                author: author || AUTHOR_NAMES.USER,
                 content: content,
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -412,22 +429,40 @@ exports.autoAddComment = async function(req, res) {
             .limit(1)
             .get();
 
-        let nextCommenter = 'Gemini'; // 기본값
+        let nextCommenter = AUTHOR_NAMES.GEMINI; // 기본값
         
         if (!commentsSnapshot.empty) {
             const lastComment = commentsSnapshot.docs[0].data();
-            // 마지막 댓글이 Gemini면 GPT, GPT면 Gemini
-            if (lastComment.author === 'Gemini') {
-                nextCommenter = 'GPT';
-            } else if (lastComment.author === 'GPT') {
-                nextCommenter = 'Gemini';
+            // 마지막 댓글이 Gemini면 GPT, GPT면 Gemini (Exaone 제외)
+            if (lastComment.author === AUTHOR_NAMES.GEMINI) {
+                nextCommenter = AUTHOR_NAMES.GPT;
+            } else if (lastComment.author === AUTHOR_NAMES.GPT) {
+                nextCommenter = AUTHOR_NAMES.GEMINI;
+            } else if (lastComment.author === AUTHOR_NAMES.EXAONE) {
+                // Exaone 댓글은 순환에서 제외, 이전 Gemini/GPT 댓글 찾기
+                const prevComments = await db.collection(COL_COMMENTS)
+                    .where('postId', '==', postId)
+                    .orderBy('createdAt', 'desc')
+                    .limit(10)
+                    .get();
+                
+                for (const doc of prevComments.docs) {
+                    const author = doc.data().author;
+                    if (author === AUTHOR_NAMES.GEMINI) {
+                        nextCommenter = AUTHOR_NAMES.GPT;
+                        break;
+                    } else if (author === AUTHOR_NAMES.GPT) {
+                        nextCommenter = AUTHOR_NAMES.GEMINI;
+                        break;
+                    }
+                }
             }
         } else {
             // 댓글이 없으면 게시글 작성자와 반대로
-            if (postAuthor === 'Gemini') {
-                nextCommenter = 'GPT';
-            } else if (postAuthor === 'GPT') {
-                nextCommenter = 'Gemini';
+            if (postAuthor === AUTHOR_NAMES.GEMINI) {
+                nextCommenter = AUTHOR_NAMES.GPT;
+            } else if (postAuthor === AUTHOR_NAMES.GPT) {
+                nextCommenter = AUTHOR_NAMES.GEMINI;
             }
         }
 
@@ -496,8 +531,14 @@ ${postContent}${existingCommentsText}
         try {
             if (nextCommenter === 'Gemini') {
                 commentContent = await callGeminiSNS(prompt);
-            } else {
+            } else if (nextCommenter === 'GPT') {
                 commentContent = await callOpenAISNS(prompt);
+            } else if (nextCommenter === 'Exaone') {
+                commentContent = await callExaoneSNS(prompt);
+            } else {
+                logger.error(`[SNS] Unknown nextCommenter: ${nextCommenter}`);
+                if (res) return res.send({ result: "fail", message: "Unknown AI" });
+                return;
             }
         } catch (error) {
             logger.error(`[SNS] ${nextCommenter} API Error: ${error.message}`);
@@ -556,6 +597,87 @@ ${postContent}${existingCommentsText}
         logger.info(`[SNS] Auto Comment Created by ${nextCommenter} on post ${postId}`);
         logger.info(`[SNS] Comment: ${commentContent.substring(0, 50)}...`);
         
+        // Exaone이 실행 중이면 추가로 댓글 작성
+        const isExaoneAvailable = await checkExaoneAvailable();
+        if (isExaoneAvailable) {
+            logger.info(`[SNS] Exaone also creating auto comment on post ${postId}`);
+            
+            // 짧은 대기 후 Exaone 댓글 작성
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            try {
+                const exaonePrompt = `
+다음 게시글과 기존 댓글들을 보고 자연스럽고 적절한 댓글을 작성해주세요.
+
+[게시글 작성자]: ${postAuthor}
+[게시글 내용]:
+${postContent}${existingCommentsText}
+
+[최신 AI 댓글]: ${nextCommenter}가 방금 "${commentContent}"라고 댓글을 달았습니다.
+
+[댓글 작성 규칙]:
+1. 게시글 내용과 기존 댓글들의 흐름을 고려하여 자연스럽게 작성하세요.
+2. ${nextCommenter}의 댓글과 중복되지 않도록 다른 관점을 제시하세요.
+3. 100자 이내로 간결하게 작성하세요.
+4. 자연스러운 한국어로 작성하세요.
+5. 게시글 내용이 부적절하거나 댓글을 달 가치가 없다고 판단되면 "SKIP"이라고만 출력하세요.
+
+[금지 사항]:
+- 이모지 사용 금지
+- 해시태그(#) 사용 금지
+- 특수문자(---, ***, 등) 사용 금지
+- [댓글 내용], [작성] 같은 메타 텍스트 금지
+
+출력 형식:
+- 댓글 작성 안 함: "SKIP"
+- 댓글 작성: 댓글 본문만 출력 (다른 텍스트 없이)
+`;
+
+                let exaoneComment = await callExaoneSNS(exaonePrompt);
+                exaoneComment = exaoneComment.trim()
+                    .replace(/^---+\s*/gm, '')
+                    .replace(/\s*---+$/gm, '')
+                    .replace(/^\[댓글 내용\]\s*/i, '')
+                    .replace(/^\[작성\]\s*/i, '')
+                    .replace(/#\S+/g, '')
+                    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+                    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+                    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+                    .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+                    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+                    .replace(/[\u{2700}-\u{27BF}]/gu, '')
+                    .trim();
+
+                if (!exaoneComment.includes("SKIP") && exaoneComment.length >= 5) {
+                    const exaoneCommentRef = db.collection(COL_COMMENTS).doc();
+                    
+                    await db.runTransaction(async (t) => {
+                        const postDoc = await t.get(postRef);
+                        if (!postDoc.exists) {
+                            throw new Error("게시글이 삭제되었습니다.");
+                        }
+
+                        t.set(exaoneCommentRef, {
+                            postId: postId,
+                            author: AUTHOR_NAMES.EXAONE,
+                            content: exaoneComment,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        t.update(postRef, {
+                            commentCount: admin.firestore.FieldValue.increment(1)
+                        });
+                    });
+                    
+                    logger.info(`[SNS] Exaone Auto Comment Created: ${exaoneComment.substring(0, 50)}...`);
+                } else {
+                    logger.info(`[SNS] Exaone decided to skip commenting`);
+                }
+            } catch (exaoneError) {
+                logger.error(`[SNS] Exaone auto comment error: ${exaoneError.message}`);
+            }
+        }
+        
         if (res) res.send({ result: "success", commentId: commentRef.id, author: nextCommenter });
 
     } catch (e) {
@@ -578,13 +700,13 @@ exports.autoCreatePost = async function(req, res) {
             .limit(1)
             .get();
 
-        let nextAuthor = 'Gemini'; // 기본값
+        let nextAuthor = AUTHOR_NAMES.GEMINI; // 기본값
         if (!recentSnapshot.empty) {
             const lastPost = recentSnapshot.docs[0].data();
-            if (lastPost.author === 'Gemini') {
-                nextAuthor = 'GPT';
-            } else if (lastPost.author === 'GPT') {
-                nextAuthor = 'Gemini';
+            if (lastPost.author === AUTHOR_NAMES.GEMINI) {
+                nextAuthor = AUTHOR_NAMES.GPT;
+            } else if (lastPost.author === AUTHOR_NAMES.GPT) {
+                nextAuthor = AUTHOR_NAMES.GEMINI;
             }
         }
 
@@ -689,7 +811,7 @@ exports.autoCreatePost = async function(req, res) {
 `;
             
             try {
-                if (nextAuthor === 'Gemini') {
+                if (nextAuthor === AUTHOR_NAMES.GEMINI) {
                     postContent = await callGemini(prompt);
                 } else {
                     postContent = await callOpenAI(prompt);
@@ -733,14 +855,27 @@ exports.autoCreatePost = async function(req, res) {
             if (trendIndex === 1) {
                 trendSource = 'it';
                 rssUrl = 'https://news.hada.io/rss/news';
-                authorName = 'GeekNews';
+                authorName = AUTHOR_NAMES.GEEKNEWS;
                 logger.info(`[SNS] Using IT trend (GeekNews RSS)`);
             } else {
                 trendSource = 'stock';
                 rssUrl = 'https://www.hankyung.com/feed/finance';
-                authorName = 'Hankyung';
+                authorName = AUTHOR_NAMES.HANKYUNG;
                 logger.info(`[SNS] Using stock trend (Hankyung RSS)`);
             }
+            
+            // 기존 포스트 내용 가져오기 (중복 체크용)
+            const existingPostsSnapshot = await db.collection(COL_POSTS)
+                .where('author', 'in', [AUTHOR_NAMES.GEEKNEWS, AUTHOR_NAMES.HANKYUNG])
+                .orderBy('createdAt', 'desc')
+                .limit(50)
+                .get();
+            
+            const existingContents = existingPostsSnapshot.docs.map(doc => 
+                (doc.data().content || '').toLowerCase()
+            );
+            
+            logger.info(`[SNS] Loaded ${existingContents.length} existing posts for duplicate check`);
             
             // RSS 피드 파싱
             const Parser = require('rss-parser');
@@ -758,14 +893,42 @@ exports.autoCreatePost = async function(req, res) {
                 let selectedItem = null;
                 
                 if (trendSource === 'it') {
-                    // IT 트렌드: 쉬운 기사만 선택
+                    // IT 트렌드: 쉬운 기사만 선택 + 중복 체크
                     logger.info(`[SNS] Filtering easy IT articles from ${feed.items.length} items`);
                     
-                    // 최신 10개 기사 가져오기
-                    const candidates = feed.items.slice(0, 10);
+                    // 최신 20개 기사 가져오기 (중복 체크를 위해 더 많이)
+                    const candidates = feed.items.slice(0, 20);
+                    
+                    // 중복되지 않은 기사만 필터링
+                    const uniqueCandidates = candidates.filter(item => {
+                        const title = (item.title || '').toLowerCase();
+                        const content = ((item.contentSnippet || item.content || '')
+                            .replace(/<[^>]*>/g, '')
+                            .toLowerCase());
+                        
+                        // 기존 포스트와 비교 (제목 또는 주요 내용이 70% 이상 일치하면 중복)
+                        for (const existingContent of existingContents) {
+                            if (existingContent.includes(title.substring(0, 30)) ||
+                                title.includes(existingContent.substring(0, 30))) {
+                                return false; // 중복
+                            }
+                        }
+                        return true; // 중복 아님
+                    });
+                    
+                    if (uniqueCandidates.length === 0) {
+                        logger.info(`[SNS] All IT articles are duplicates. Skipping post.`);
+                        if (res) return res.send({ result: "success", message: "All duplicates" });
+                        return;
+                    }
+                    
+                    logger.info(`[SNS] Found ${uniqueCandidates.length} unique IT articles out of ${candidates.length}`);
+                    
+                    // 최신 10개만 선택하여 AI에게 제공
+                    const finalCandidates = uniqueCandidates.slice(0, 10);
                     
                     // 각 기사의 제목과 요약 추출
-                    const articleSummaries = candidates.map((item, idx) => {
+                    const articleSummaries = finalCandidates.map((item, idx) => {
                         const title = item.title || '';
                         const snippet = (item.contentSnippet || item.content || '')
                             .replace(/<[^>]*>/g, '')
@@ -794,8 +957,8 @@ ${articleSummaries}
                         const aiResponse = await callGemini(filterPrompt);
                         const selectedIndex = parseInt(aiResponse.trim());
                         
-                        if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < candidates.length) {
-                            selectedItem = candidates[selectedIndex];
+                        if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < finalCandidates.length) {
+                            selectedItem = finalCandidates[selectedIndex];
                             logger.info(`[SNS] AI selected easy article #${selectedIndex}: ${selectedItem.title}`);
                         } else if (aiResponse.includes('SKIP')) {
                             logger.info(`[SNS] No easy IT articles found. Skipping post.`);
@@ -803,22 +966,52 @@ ${articleSummaries}
                             return;
                         } else {
                             // Fallback: 첫 번째 기사 선택
-                            selectedItem = candidates[0];
-                            logger.info(`[SNS] AI response unclear, using first article`);
+                            selectedItem = finalCandidates[0];
+                            logger.info(`[SNS] AI response unclear, using first unique article`);
                         }
                     } catch (error) {
                         logger.error(`[SNS] Error filtering IT articles: ${error.message}`);
                         // Fallback: 랜덤 선택
-                        const randomIdx = Math.floor(Math.random() * candidates.length);
-                        selectedItem = candidates[randomIdx];
-                        logger.info(`[SNS] Fallback to random article`);
+                        const randomIdx = Math.floor(Math.random() * finalCandidates.length);
+                        selectedItem = finalCandidates[randomIdx];
+                        logger.info(`[SNS] Fallback to random unique article`);
                     }
                 } else {
-                    // 주식 트렌드: 랜덤 선택 (기존 방식)
-                    const maxItems = Math.min(feed.items.length, 20);
-                    const randomIndex = Math.floor(Math.random() * maxItems);
-                    selectedItem = feed.items[randomIndex];
-                    logger.info(`[SNS] Selected random stock article: ${selectedItem.title}`);
+                    // 주식 트렌드: 중복되지 않은 기사 선택
+                    logger.info(`[SNS] Selecting unique stock article from ${feed.items.length} items`);
+                    
+                    const maxItems = Math.min(feed.items.length, 30);
+                    const candidates = feed.items.slice(0, maxItems);
+                    
+                    // 중복되지 않은 기사만 필터링
+                    const uniqueCandidates = candidates.filter(item => {
+                        const title = (item.title || '').toLowerCase();
+                        const content = ((item.contentSnippet || item.content || '')
+                            .replace(/<[^>]*>/g, '')
+                            .toLowerCase());
+                        
+                        // 기존 포스트와 비교
+                        for (const existingContent of existingContents) {
+                            if (existingContent.includes(title.substring(0, 30)) ||
+                                title.includes(existingContent.substring(0, 30))) {
+                                return false; // 중복
+                            }
+                        }
+                        return true; // 중복 아님
+                    });
+                    
+                    if (uniqueCandidates.length === 0) {
+                        logger.info(`[SNS] All stock articles are duplicates. Skipping post.`);
+                        if (res) return res.send({ result: "success", message: "All duplicates" });
+                        return;
+                    }
+                    
+                    logger.info(`[SNS] Found ${uniqueCandidates.length} unique stock articles out of ${candidates.length}`);
+                    
+                    // 랜덤 선택
+                    const randomIndex = Math.floor(Math.random() * uniqueCandidates.length);
+                    selectedItem = uniqueCandidates[randomIndex];
+                    logger.info(`[SNS] Selected unique stock article: ${selectedItem.title}`);
                 }
                 
                 if (!selectedItem) {
@@ -892,6 +1085,52 @@ ${articleSummaries}
 };
 
 /**
+ * Ollama(Exaone)가 실행 중인지 확인하는 헬퍼 함수
+ * @returns {Promise<boolean>} Exaone 사용 가능 여부
+ */
+async function checkExaoneAvailable() {
+    const now = Date.now();
+    
+    // 캐시된 결과가 유효하면 바로 반환
+    if (now - lastExaoneCheck < EXAONE_CHECK_INTERVAL) {
+        return exaoneAvailable;
+    }
+    
+    try {
+        const response = await axios.get('http://localhost:11434/api/tags', {
+            timeout: 2000
+        });
+        
+        // exaone3.5:7.8b-instruct-q4_K_M 모델이 있는지 확인
+        if (response.data && response.data.models) {
+            const hasExaone = response.data.models.some(model => 
+                model.name && model.name.includes('exaone3.5:7.8b-instruct-q4_K_M')
+            );
+            exaoneAvailable = hasExaone;
+            lastExaoneCheck = now;
+            
+            if (hasExaone) {
+                logger.info('[SNS] Exaone is available and running');
+            } else {
+                logger.info('[SNS] Ollama is running but Exaone model not found');
+            }
+            
+            return exaoneAvailable;
+        }
+        
+        exaoneAvailable = false;
+        lastExaoneCheck = now;
+        return false;
+        
+    } catch (error) {
+        // Ollama가 실행되지 않음
+        exaoneAvailable = false;
+        lastExaoneCheck = now;
+        return false;
+    }
+}
+
+/**
  * 검색이 필요한지 판단하는 헬퍼 함수
  * @param {string} content - 사용자 게시글/댓글 내용
  * @param {string} aiName - AI 이름
@@ -925,10 +1164,15 @@ ${content}
 출력:`;
 
         let result = "";
-        if (aiName === 'Gemini') {
+        if (aiName === AUTHOR_NAMES.GEMINI) {
             result = await callGeminiSNS(prompt);
-        } else {
+        } else if (aiName === AUTHOR_NAMES.GPT) {
             result = await callOpenAISNS(prompt);
+        } else if (aiName === AUTHOR_NAMES.EXAONE) {
+            result = await callExaoneSNS(prompt);
+        } else {
+            logger.error(`[SNS] Unknown AI name in checkIfSearchNeeded: ${aiName}`);
+            return { needSearch: false };
         }
 
         result = result.trim();
@@ -1077,10 +1321,15 @@ ${userContent}${searchResultsText}
         let commentContent = "";
         
         try {
-            if (aiName === 'Gemini') {
+            if (aiName === AUTHOR_NAMES.GEMINI) {
                 commentContent = await callGeminiSNS(prompt);
-            } else {
+            } else if (aiName === AUTHOR_NAMES.GPT) {
                 commentContent = await callOpenAISNS(prompt);
+            } else if (aiName === AUTHOR_NAMES.EXAONE) {
+                commentContent = await callExaoneSNS(prompt);
+            } else {
+                logger.error(`[SNS] Unknown AI name: ${aiName}`);
+                return;
             }
         } catch (error) {
             logger.error(`[SNS] ${aiName} API Error: ${error.message}`);
@@ -1175,6 +1424,7 @@ async function replyBothAIs(postId, userContent) {
 /**
  * User의 게시글/댓글에 AI가 답변하는 헬퍼 함수
  * - Gemini와 GPT가 번갈아가며 답변 (autoAddComment용)
+ * - Exaone이 실행 중이면 추가로 답변
  */
 async function replyToPost(postId, userContent) {
     try {
@@ -1185,15 +1435,33 @@ async function replyToPost(postId, userContent) {
             .limit(1)
             .get();
 
-        let nextCommenter = 'Gemini'; // 기본값
+        let nextCommenter = AUTHOR_NAMES.GEMINI; // 기본값
         
         if (!commentsSnapshot.empty) {
             const lastComment = commentsSnapshot.docs[0].data();
-            // 마지막 댓글이 Gemini면 GPT, GPT면 Gemini
-            if (lastComment.author === 'Gemini') {
-                nextCommenter = 'GPT';
-            } else if (lastComment.author === 'GPT') {
-                nextCommenter = 'Gemini';
+            // 마지막 댓글이 Gemini면 GPT, GPT면 Gemini (Exaone 제외)
+            if (lastComment.author === AUTHOR_NAMES.GEMINI) {
+                nextCommenter = AUTHOR_NAMES.GPT;
+            } else if (lastComment.author === AUTHOR_NAMES.GPT) {
+                nextCommenter = AUTHOR_NAMES.GEMINI;
+            } else if (lastComment.author === AUTHOR_NAMES.EXAONE) {
+                // Exaone 댓글은 순환에서 제외, 이전 Gemini/GPT 댓글 찾기
+                const prevComments = await db.collection(COL_COMMENTS)
+                    .where('postId', '==', postId)
+                    .orderBy('createdAt', 'desc')
+                    .limit(10)
+                    .get();
+                
+                for (const doc of prevComments.docs) {
+                    const author = doc.data().author;
+                    if (author === AUTHOR_NAMES.GEMINI) {
+                        nextCommenter = AUTHOR_NAMES.GPT;
+                        break;
+                    } else if (author === AUTHOR_NAMES.GPT) {
+                        nextCommenter = AUTHOR_NAMES.GEMINI;
+                        break;
+                    }
+                }
             }
         }
 
@@ -1201,6 +1469,15 @@ async function replyToPost(postId, userContent) {
 
         // createAIReply를 사용하여 검색 기능 포함한 답변 생성
         await createAIReply(postId, userContent, nextCommenter);
+        
+        // Exaone이 실행 중이면 추가로 답변
+        const isExaoneAvailable = await checkExaoneAvailable();
+        if (isExaoneAvailable) {
+            logger.info(`[SNS] Exaone also replying to User's content`);
+            // 짧은 대기 후 Exaone 답변 (이전 댓글이 저장될 시간 확보)
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            await createAIReply(postId, userContent, AUTHOR_NAMES.EXAONE);
+        }
 
     } catch (error) {
         logger.error(`[SNS] replyToPost Error: ${error.message}`);
