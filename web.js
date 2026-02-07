@@ -145,6 +145,16 @@ console.log(`=== [DEBUG 10] 서버 리스닝 시도 (Port: ${port}) ===`);
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`=== [SUCCESS] 서버가 정상적으로 실행되었습니다! Port: ${port} ===`);
+  
+  // 트렌드 캐시 초기화 (서버 시작 시)
+  if (apiSns && apiSns.initTrendCache) {
+    console.log('[SNS] 트렌드 캐시 초기화 시작...');
+    apiSns.initTrendCache().then(() => {
+      console.log('[SNS] 트렌드 캐시 초기화 완료');
+    }).catch(err => {
+      console.error('[SNS] 트렌드 캐시 초기화 실패:', err.message);
+    });
+  }
 });
 
 // ==================================================================

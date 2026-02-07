@@ -43,6 +43,13 @@ let exaoneAvailable = false;
 let lastExaoneCheck = 0;
 const EXAONE_CHECK_INTERVAL = 60000; // 1분
 
+// IT/주식 트렌드 캐시 (6시간마다 갱신)
+let itTrendCache = [];
+let stockTrendCache = [];
+let lastItTrendUpdate = 0;
+let lastStockTrendUpdate = 0;
+const TREND_CACHE_INTERVAL = 6 * 60 * 60 * 1000; // 6시간
+
 // ==========================================
 // 1. 게시글 (Post) CRUD
 // ==========================================
@@ -483,14 +490,14 @@ exports.autoAddComment = async function(req, res) {
             }
         }
 
-        // 3. 자신이 작성한 글이면 스킵
-        if (postAuthor === nextCommenter) {
-            logger.info(`[SNS] Skipping - ${nextCommenter} cannot comment on own post.`);
-            if (res) return res.send({ result: "success", message: "Cannot comment on own post" });
-            return;
+        // 3. Gemini/GPT는 자신이 작성한 글이면 스킵하지만, Exaone은 계속 진행
+        const shouldNextCommenterSkip = (postAuthor === nextCommenter);
+        
+        if (shouldNextCommenterSkip) {
+            logger.info(`[SNS] ${nextCommenter} will skip (own post) but Exaone will process`);
+        } else {
+            logger.info(`[SNS] Auto comment attempt by: ${nextCommenter} on post by ${postAuthor}`);
         }
-
-        logger.info(`[SNS] Auto comment attempt by: ${nextCommenter} on post by ${postAuthor}`);
 
         // 4. 최근 5개 댓글만 가져와 컨텍스트로 사용 (토큰 절약)
         const recentCommentsSnapshot = await db.collection(COL_COMMENTS)
@@ -512,13 +519,104 @@ exports.autoAddComment = async function(req, res) {
                         : data.content;
                     return `${data.author}: ${truncatedContent}`;
                 });
-            existingCommentsText = '\n\n[최근 댓글 ${commentsList.length}개]:\n' + commentsList.join('\n');
+            existingCommentsText = '\n\n[최근 댓글 ' + commentsList.length + '개]:\n' + commentsList.join('\n');
         } else {
             existingCommentsText = '\n\n[기존 댓글]: 아직 댓글이 없습니다.';
         }
 
-        // 5. AI가 게시글과 기존 댓글들을 보고 댓글 작성
-        const prompt = `
+        // ===== 먼저 Exaone이 사용 가능하면 댓글 작성 (오류 발생 전에 실행) =====
+        const isExaoneAvailable = await checkExaoneAvailable();
+        if (isExaoneAvailable) {
+            // Exaone은 자신의 글에는 댓글을 달지 않음
+            if (postAuthor === AUTHOR_KEYS.EXAONE) {
+                logger.info(`[SNS] Exaone skipping own post: ${postId}`);
+            } else {
+                logger.info(`[SNS] Exaone creating auto comment first on post ${postId}`);
+                
+                try {
+                    // Exaone용 프롬프트 (기존 댓글만 참고)
+                    const exaonePrompt = `
+다음 게시글과 기존 댓글들을 보고 자연스럽고 적절한 댓글을 작성해주세요.
+
+[게시글 작성자]: ${postAuthor}
+[게시글 내용]:
+${postContent}${existingCommentsText}
+
+[댓글 작성 규칙]:
+1. 게시글 내용과 기존 댓글들의 흐름을 고려하여 자연스럽게 작성하세요.
+2. 기존 댓글에서 다룬 내용과 중복되지 않도록 새로운 관점이나 의견을 제시하세요.
+3. 100자 이내로 간결하게 작성하세요.
+4. 자연스러운 한국어로 작성하세요.
+5. 게시글 내용이 부적절하거나 댓글을 달 가치가 없다고 판단되면 "SKIP"이라고만 출력하세요.
+
+[금지 사항]:
+- 이모지 사용 금지
+- 해시태그(#) 사용 금지
+- 특수문자(---, ***, 등) 사용 금지
+- [댓글 내용], [작성] 같은 메타 텍스트 금지
+
+출력 형식:
+- 댓글 작성 안 함: "SKIP"
+- 댓글 작성: 댓글 본문만 출력 (다른 텍스트 없이)
+`;
+
+                    let exaoneComment = await callExaoneSNS(exaonePrompt);
+                    exaoneComment = exaoneComment.trim()
+                        .replace(/^---+\s*/gm, '')
+                        .replace(/\s*---+$/gm, '')
+                        .replace(/^\[댓글 내용\]\s*/i, '')
+                        .replace(/^\[작성\]\s*/i, '')
+                        .replace(/#\S+/g, '')
+                        .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+                        .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+                        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+                        .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+                        .replace(/[\u{2600}-\u{26FF}]/gu, '')
+                        .replace(/[\u{2700}-\u{27BF}]/gu, '')
+                        .trim();
+
+                    if (!exaoneComment.includes("SKIP") && exaoneComment.length >= 5) {
+                        const postRef = db.collection(COL_POSTS).doc(postId);
+                        const exaoneCommentRef = db.collection(COL_COMMENTS).doc();
+                        
+                        await db.runTransaction(async (t) => {
+                            const postDoc = await t.get(postRef);
+                            if (!postDoc.exists) {
+                                throw new Error("게시글이 삭제되었습니다.");
+                            }
+
+                            t.set(exaoneCommentRef, {
+                                postId: postId,
+                                author: AUTHOR_KEYS.EXAONE,
+                                content: exaoneComment,
+                                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+
+                            t.update(postRef, {
+                                commentCount: admin.firestore.FieldValue.increment(1)
+                            });
+                        });
+                        
+                        logger.info(`[SNS] Exaone Auto Comment Created (priority): ${exaoneComment.substring(0, 50)}...`);
+                    } else {
+                        logger.info(`[SNS] Exaone decided to skip commenting`);
+                    }
+                } catch (exaoneError) {
+                    logger.error(`[SNS] Exaone auto comment error: ${exaoneError.message}`);
+                }
+            }
+        }
+
+        // ===== 이제 Gemini/GPT 댓글 작성 시도 =====
+        // shouldNextCommenterSkip이 true면 자신의 글이므로 스킵
+        let geminiGptSuccess = false;
+        
+        if (shouldNextCommenterSkip) {
+            logger.info(`[SNS] ${nextCommenter} skipping own post, moving to Exaone all posts scan`);
+            geminiGptSuccess = false;
+        } else {
+            // 5. AI가 게시글과 기존 댓글들을 보고 댓글 작성
+            const prompt = `
 다음 게시글과 기존 댓글들을 보고 자연스럽고 적절한 댓글을 작성해주세요.
 
 [게시글 작성자]: ${postAuthor}
@@ -554,110 +652,21 @@ ${postContent}${existingCommentsText}
                 commentContent = await callExaoneSNS(prompt);
             } else {
                 logger.error(`[SNS] Unknown nextCommenter: ${nextCommenter}`);
-                if (res) return res.send({ result: "fail", message: "Unknown AI" });
-                return;
+                // 오류가 나도 Exaone all posts는 실행하도록 계속 진행
+                geminiGptSuccess = false;
             }
-        } catch (error) {
-            logger.error(`[SNS] ${nextCommenter} API Error: ${error.message}`);
-            if (res) return res.send({ result: "fail", message: error.message });
-            return;
-        }
-
-        commentContent = commentContent.trim();
-
-        // 응답 정제: 불필요한 메타 텍스트 제거
-        commentContent = commentContent
-            .replace(/^---+\s*/gm, '')  // 구분자 제거
-            .replace(/\s*---+$/gm, '')
-            .replace(/^\[댓글 내용\]\s*/i, '')  // 메타 텍스트 제거
-            .replace(/^\[작성\]\s*/i, '')
-            .replace(/#\S+/g, '')  // 해시태그 제거
-            .replace(/[\u{1F600}-\u{1F64F}]/gu, '')  // 이모지 제거
-            .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
-            .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
-            .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
-            .replace(/[\u{2600}-\u{26FF}]/gu, '')
-            .replace(/[\u{2700}-\u{27BF}]/gu, '')
-            .trim();
-
-        // 6. SKIP 판단 - 댓글 작성하지 않기로 결정
-        if (commentContent.includes("SKIP") || commentContent.length < 5) {
-            logger.info(`[SNS] ${nextCommenter} decided to skip commenting.`);
-            if (res) return res.send({ result: "success", message: "AI skipped commenting" });
-            return;
-        }
-
-        // 7. 댓글 저장 (addComment 로직 재사용)
-        const postRef = db.collection(COL_POSTS).doc(postId);
-        const commentRef = db.collection(COL_COMMENTS).doc();
-
-        await db.runTransaction(async (t) => {
-            const postDoc = await t.get(postRef);
-            if (!postDoc.exists) {
-                throw new Error("게시글이 삭제되었습니다.");
-            }
-
-            // 댓글 생성
-            t.set(commentRef, {
-                postId: postId,
-                author: nextCommenter,
-                content: commentContent,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-
-            // 게시글 카운트 증가
-            t.update(postRef, {
-                commentCount: admin.firestore.FieldValue.increment(1)
-            });
-        });
-
-        logger.info(`[SNS] Auto Comment Created by ${nextCommenter} on post ${postId}`);
-        logger.info(`[SNS] Comment: ${commentContent.substring(0, 50)}...`);
-        
-        // Exaone이 실행 중이면 추가로 댓글 작성
-        const isExaoneAvailable = await checkExaoneAvailable();
-        if (isExaoneAvailable) {
-            logger.info(`[SNS] Exaone also creating auto comment on post ${postId}`);
             
-            // 짧은 대기 후 Exaone 댓글 작성
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            try {
-                const exaonePrompt = `
-다음 게시글과 기존 댓글들을 보고 자연스럽고 적절한 댓글을 작성해주세요.
+            if (commentContent) {
+                commentContent = commentContent.trim();
 
-[게시글 작성자]: ${postAuthor}
-[게시글 내용]:
-${postContent}${existingCommentsText}
-
-[최신 AI 댓글]: ${nextCommenter}가 방금 "${commentContent}"라고 댓글을 달았습니다.
-
-[댓글 작성 규칙]:
-1. 게시글 내용과 기존 댓글들의 흐름을 고려하여 자연스럽게 작성하세요.
-2. ${nextCommenter}의 댓글과 중복되지 않도록 다른 관점을 제시하세요.
-3. 100자 이내로 간결하게 작성하세요.
-4. 자연스러운 한국어로 작성하세요.
-5. 게시글 내용이 부적절하거나 댓글을 달 가치가 없다고 판단되면 "SKIP"이라고만 출력하세요.
-
-[금지 사항]:
-- 이모지 사용 금지
-- 해시태그(#) 사용 금지
-- 특수문자(---, ***, 등) 사용 금지
-- [댓글 내용], [작성] 같은 메타 텍스트 금지
-
-출력 형식:
-- 댓글 작성 안 함: "SKIP"
-- 댓글 작성: 댓글 본문만 출력 (다른 텍스트 없이)
-`;
-
-                let exaoneComment = await callExaoneSNS(exaonePrompt);
-                exaoneComment = exaoneComment.trim()
-                    .replace(/^---+\s*/gm, '')
+                // 응답 정제: 불필요한 메타 텍스트 제거
+                commentContent = commentContent
+                    .replace(/^---+\s*/gm, '')  // 구분자 제거
                     .replace(/\s*---+$/gm, '')
-                    .replace(/^\[댓글 내용\]\s*/i, '')
+                    .replace(/^\[댓글 내용\]\s*/i, '')  // 메타 텍스트 제거
                     .replace(/^\[작성\]\s*/i, '')
-                    .replace(/#\S+/g, '')
-                    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+                    .replace(/#\S+/g, '')  // 해시태그 제거
+                    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')  // 이모지 제거
                     .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
                     .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
                     .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
@@ -665,37 +674,67 @@ ${postContent}${existingCommentsText}
                     .replace(/[\u{2700}-\u{27BF}]/gu, '')
                     .trim();
 
-                if (!exaoneComment.includes("SKIP") && exaoneComment.length >= 5) {
-                    const exaoneCommentRef = db.collection(COL_COMMENTS).doc();
-                    
+                // SKIP 판단 - 댓글 작성하지 않기로 결정
+                if (commentContent.includes("SKIP") || commentContent.length < 5) {
+                    logger.info(`[SNS] ${nextCommenter} decided to skip commenting.`);
+                    geminiGptSuccess = false;
+                } else {
+                    // 댓글 저장
+                    const postRef = db.collection(COL_POSTS).doc(postId);
+                    const commentRef = db.collection(COL_COMMENTS).doc();
+
                     await db.runTransaction(async (t) => {
                         const postDoc = await t.get(postRef);
                         if (!postDoc.exists) {
                             throw new Error("게시글이 삭제되었습니다.");
                         }
 
-                        t.set(exaoneCommentRef, {
+                        // 댓글 생성
+                        t.set(commentRef, {
                             postId: postId,
-                            author: AUTHOR_KEYS.EXAONE,
-                            content: exaoneComment,
+                            author: nextCommenter,
+                            content: commentContent,
                             createdAt: admin.firestore.FieldValue.serverTimestamp()
                         });
 
+                        // 게시글 카운트 증가
                         t.update(postRef, {
                             commentCount: admin.firestore.FieldValue.increment(1)
                         });
                     });
-                    
-                    logger.info(`[SNS] Exaone Auto Comment Created: ${exaoneComment.substring(0, 50)}...`);
-                } else {
-                    logger.info(`[SNS] Exaone decided to skip commenting`);
+
+                    logger.info(`[SNS] Auto Comment Created by ${nextCommenter} on post ${postId}`);
+                    logger.info(`[SNS] Comment: ${commentContent.substring(0, 50)}...`);
+                    geminiGptSuccess = true;
                 }
-            } catch (exaoneError) {
-                logger.error(`[SNS] Exaone auto comment error: ${exaoneError.message}`);
             }
+        } catch (error) {
+            logger.error(`[SNS] ${nextCommenter} API Error: ${error.message}`);
+            // 오류가 나도 Exaone all posts는 실행하도록 계속 진행
+            geminiGptSuccess = false;
+        }
+        } // shouldNextCommenterSkip else 블록 닫기
+        
+        // Exaone이 활성화되어 있으면 모든 post를 순회하면서 댓글이 없는 post에 댓글 작성
+        const isExaoneAvailableForAll = await checkExaoneAvailable();
+        if (isExaoneAvailableForAll) {
+            logger.info(`[SNS] Exaone scanning all posts for commenting`);
+            // 비동기로 실행하여 응답 지연 방지
+            setImmediate(() => {
+                autoCommentExaoneOnAllPosts().catch(err => {
+                    logger.error(`[SNS] Failed to auto-comment on all posts: ${err.message}`);
+                });
+            });
         }
         
-        if (res) res.send({ result: "success", commentId: commentRef.id, author: nextCommenter });
+        // 응답 전송
+        if (res) {
+            if (geminiGptSuccess) {
+                res.send({ result: "success", author: nextCommenter });
+            } else {
+                res.send({ result: "success", message: `${nextCommenter} skipped, but Exaone processed` });
+            }
+        }
 
     } catch (e) {
         logger.error(`[SNS] autoAddComment Error: ${e.message}`);
@@ -866,19 +905,35 @@ exports.autoCreatePost = async function(req, res) {
             logger.info(`[SNS] ${nextAuthor} generated post for keyword: ${selectedKeyword}`);
             
         } else {
-            // ===== IT/주식 트렌드 (RSS 기사 직접 포스팅) =====
-            let rssUrl = '';
+            // ===== IT/주식 트렌드 (캐시된 RSS 기사 사용) =====
             
             if (trendIndex === 1) {
                 trendSource = 'it';
-                rssUrl = 'https://news.hada.io/rss/news';
                 authorName = AUTHOR_KEYS.GEEKNEWS;
-                logger.info(`[SNS] Using IT trend (GeekNews RSS)`);
+                logger.info(`[SNS] Using IT trend (cached GeekNews)`);
+                
+                // IT 트렌드 캐시 갱신 (필요시)
+                await updateItTrendCache();
+                
+                if (itTrendCache.length === 0) {
+                    logger.info(`[SNS] IT trend cache is empty. Skipping post.`);
+                    if (res) return res.send({ result: "success", message: "No IT cache" });
+                    return;
+                }
+                
             } else {
                 trendSource = 'stock';
-                rssUrl = 'https://www.hankyung.com/feed/finance';
                 authorName = AUTHOR_KEYS.HANKYUNG;
-                logger.info(`[SNS] Using stock trend (Hankyung RSS)`);
+                logger.info(`[SNS] Using stock trend (cached Hankyung)`);
+                
+                // 주식 트렌드 캐시 갱신 (필요시)
+                await updateStockTrendCache();
+                
+                if (stockTrendCache.length === 0) {
+                    logger.info(`[SNS] Stock trend cache is empty. Skipping post.`);
+                    if (res) return res.send({ result: "success", message: "No stock cache" });
+                    return;
+                }
             }
             
             // 기존 포스트 내용 가져오기 (중복 체크용)
@@ -894,177 +949,58 @@ exports.autoCreatePost = async function(req, res) {
             
             logger.info(`[SNS] Loaded ${existingContents.length} existing posts for duplicate check`);
             
-            // RSS 피드 파싱
-            const Parser = require('rss-parser');
-            const parser = new Parser();
+            // 캐시에서 중복되지 않은 기사만 필터링
+            const cacheItems = trendSource === 'it' ? itTrendCache : stockTrendCache;
             
-            try {
-                const feed = await parser.parseURL(rssUrl);
+            const uniqueCandidates = cacheItems.filter(item => {
+                const title = (item.title || '').toLowerCase();
                 
-                if (!feed.items || feed.items.length === 0) {
-                    logger.info(`[SNS] No RSS items found from ${rssUrl}. Skipping post.`);
-                    if (res) return res.send({ result: "success", message: "No RSS items" });
-                    return;
-                }
-                
-                let selectedItem = null;
-                
-                if (trendSource === 'it') {
-                    // IT 트렌드: 쉬운 기사만 선택 + 중복 체크
-                    logger.info(`[SNS] Filtering easy IT articles from ${feed.items.length} items`);
-                    
-                    // 최신 20개 기사 가져오기 (중복 체크를 위해 더 많이)
-                    const candidates = feed.items.slice(0, 20);
-                    
-                    // 중복되지 않은 기사만 필터링
-                    const uniqueCandidates = candidates.filter(item => {
-                        const title = (item.title || '').toLowerCase();
-                        const content = ((item.contentSnippet || item.content || '')
-                            .replace(/<[^>]*>/g, '')
-                            .toLowerCase());
-                        
-                        // 기존 포스트와 비교 (제목 또는 주요 내용이 70% 이상 일치하면 중복)
-                        for (const existingContent of existingContents) {
-                            if (existingContent.includes(title.substring(0, 30)) ||
-                                title.includes(existingContent.substring(0, 30))) {
-                                return false; // 중복
-                            }
-                        }
-                        return true; // 중복 아님
-                    });
-                    
-                    if (uniqueCandidates.length === 0) {
-                        logger.info(`[SNS] All IT articles are duplicates. Skipping post.`);
-                        if (res) return res.send({ result: "success", message: "All duplicates" });
-                        return;
+                // 기존 포스트와 비교 (제목이 포함되어 있으면 중복)
+                for (const existingContent of existingContents) {
+                    if (existingContent.includes(title.substring(0, 30)) ||
+                        title.includes(existingContent.substring(0, 30))) {
+                        return false; // 중복
                     }
-                    
-                    logger.info(`[SNS] Found ${uniqueCandidates.length} unique IT articles out of ${candidates.length}`);
-                    
-                    // 최신 10개만 선택하여 AI에게 제공
-                    const finalCandidates = uniqueCandidates.slice(0, 10);
-                    
-                    // 각 기사의 제목과 요약 추출
-                    const articleSummaries = finalCandidates.map((item, idx) => {
-                        const title = item.title || '';
-                        const snippet = (item.contentSnippet || item.content || '')
-                            .replace(/<[^>]*>/g, '')
-                            .replace(/\n+/g, ' ')
-                            .trim()
-                            .substring(0, 150);
-                        return `[${idx}] ${title}\n${snippet}`;
-                    }).join('\n\n');
-                    
-                    // Gemini에게 가장 쉬운 기사 선택 요청
-                    const filterPrompt = `다음은 IT 기술 뉴스 목록입니다. 이 중에서 일반인이 이해하기 쉽고, 전문 용어가 적으며, 흥미로운 기사 하나를 선택해주세요.
-
-${articleSummaries}
-
-[선택 기준]:
-- 전문적이거나 어려운 기술 용어가 적을 것
-- 일반인도 이해할 수 있는 내용일 것
-- 너무 개발자 중심적이지 않을 것
-- 흥미롭고 대중적인 주제일 것
-
-[출력 형식]:
-선택한 기사의 번호만 출력하세요. (예: 3)
-만약 적합한 기사가 없으면 "SKIP"이라고만 출력하세요.`;
-                    
-                    try {
-                        const aiResponse = await callGemini(filterPrompt);
-                        const selectedIndex = parseInt(aiResponse.trim());
-                        
-                        if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < finalCandidates.length) {
-                            selectedItem = finalCandidates[selectedIndex];
-                            logger.info(`[SNS] AI selected easy article #${selectedIndex}: ${selectedItem.title}`);
-                        } else if (aiResponse.includes('SKIP')) {
-                            logger.info(`[SNS] No easy IT articles found. Skipping post.`);
-                            if (res) return res.send({ result: "success", message: "No easy articles" });
-                            return;
-                        } else {
-                            // Fallback: 첫 번째 기사 선택
-                            selectedItem = finalCandidates[0];
-                            logger.info(`[SNS] AI response unclear, using first unique article`);
-                        }
-                    } catch (error) {
-                        logger.error(`[SNS] Error filtering IT articles: ${error.message}`);
-                        // Fallback: 랜덤 선택
-                        const randomIdx = Math.floor(Math.random() * finalCandidates.length);
-                        selectedItem = finalCandidates[randomIdx];
-                        logger.info(`[SNS] Fallback to random unique article`);
-                    }
-                } else {
-                    // 주식 트렌드: 중복되지 않은 기사 선택
-                    logger.info(`[SNS] Selecting unique stock article from ${feed.items.length} items`);
-                    
-                    const maxItems = Math.min(feed.items.length, 30);
-                    const candidates = feed.items.slice(0, maxItems);
-                    
-                    // 중복되지 않은 기사만 필터링
-                    const uniqueCandidates = candidates.filter(item => {
-                        const title = (item.title || '').toLowerCase();
-                        const content = ((item.contentSnippet || item.content || '')
-                            .replace(/<[^>]*>/g, '')
-                            .toLowerCase());
-                        
-                        // 기존 포스트와 비교
-                        for (const existingContent of existingContents) {
-                            if (existingContent.includes(title.substring(0, 30)) ||
-                                title.includes(existingContent.substring(0, 30))) {
-                                return false; // 중복
-                            }
-                        }
-                        return true; // 중복 아님
-                    });
-                    
-                    if (uniqueCandidates.length === 0) {
-                        logger.info(`[SNS] All stock articles are duplicates. Skipping post.`);
-                        if (res) return res.send({ result: "success", message: "All duplicates" });
-                        return;
-                    }
-                    
-                    logger.info(`[SNS] Found ${uniqueCandidates.length} unique stock articles out of ${candidates.length}`);
-                    
-                    // 랜덤 선택
-                    const randomIndex = Math.floor(Math.random() * uniqueCandidates.length);
-                    selectedItem = uniqueCandidates[randomIndex];
-                    logger.info(`[SNS] Selected unique stock article: ${selectedItem.title}`);
                 }
-                
-                if (!selectedItem) {
-                    logger.info(`[SNS] No article selected. Skipping post.`);
-                    if (res) return res.send({ result: "success", message: "No article selected" });
-                    return;
-                }
-                
-                // 기사 제목과 요약을 조합하여 200자 이내로 포스팅
-                const title = selectedItem.title || '';
-                const description = (selectedItem.contentSnippet || selectedItem.content || '')
-                    .replace(/<[^>]*>/g, '')  // HTML 태그 제거
-                    .replace(/\n+/g, ' ')     // 개행을 공백으로
-                    .trim();
-                
-                // 200자 제한
-                let combinedText = '';
-                if (description && description.length > 0) {
-                    combinedText = `${title}\n\n${description}`;
-                } else {
-                    combinedText = title;
-                }
-                
-                if (combinedText.length > 200) {
-                    combinedText = combinedText.substring(0, 197) + '...';
-                }
-                
-                postContent = combinedText;
-                
-                logger.info(`[SNS] ${authorName} RSS post prepared: ${postContent.substring(0, 50)}...`);
-                
-            } catch (error) {
-                logger.error(`[SNS] Error parsing RSS from ${rssUrl}:`, error);
-                if (res) return res.send({ result: "error", message: "RSS parsing failed" });
+                return true; // 중복 아님
+            });
+            
+            if (uniqueCandidates.length === 0) {
+                logger.info(`[SNS] All cached ${trendSource} articles are duplicates. Skipping post.`);
+                if (res) return res.send({ result: "success", message: "All duplicates" });
                 return;
             }
+            
+            logger.info(`[SNS] Found ${uniqueCandidates.length} unique ${trendSource} articles in cache`);
+            
+            // 랜덤으로 하나 선택
+            const randomIndex = Math.floor(Math.random() * uniqueCandidates.length);
+            const selectedItem = uniqueCandidates[randomIndex];
+            
+            logger.info(`[SNS] Selected ${trendSource} article from cache: ${selectedItem.title}`);
+            
+            // 기사 제목과 요약을 조합하여 200자 이내로 포스팅
+            const title = selectedItem.title || '';
+            const description = (selectedItem.contentSnippet || selectedItem.content || '')
+                .replace(/<[^>]*>/g, '')  // HTML 태그 제거
+                .replace(/\n+/g, ' ')     // 개행을 공백으로
+                .trim();
+            
+            // 200자 제한
+            let combinedText = '';
+            if (description && description.length > 0) {
+                combinedText = `${title}\n\n${description}`;
+            } else {
+                combinedText = title;
+            }
+            
+            if (combinedText.length > 200) {
+                combinedText = combinedText.substring(0, 197) + '...';
+            }
+            
+            postContent = combinedText;
+            
+            logger.info(`[SNS] ${authorName} post prepared from cache: ${postContent.substring(0, 50)}...`);
         }
         
         // 2. 최종 검증
@@ -1146,6 +1082,277 @@ async function checkExaoneAvailable() {
         return false;
     }
 }
+
+/**
+ * IT 트렌드 캐시 갱신 (6시간마다)
+ * - GeekNews RSS에서 기사를 가져와 LLM으로 정리하여 캐싱
+ */
+async function updateItTrendCache() {
+    const now = Date.now();
+    
+    // 캐시가 유효하면 갱신하지 않음
+    if (now - lastItTrendUpdate < TREND_CACHE_INTERVAL && itTrendCache.length > 0) {
+        logger.info(`[SNS] IT trend cache is still valid (${itTrendCache.length} items)`);
+        return;
+    }
+    
+    try {
+        logger.info('[SNS] Updating IT trend cache...');
+        
+        const Parser = require('rss-parser');
+        const parser = new Parser();
+        const rssUrl = 'https://news.hada.io/rss/news';
+        
+        const feed = await parser.parseURL(rssUrl);
+        
+        if (!feed.items || feed.items.length === 0) {
+            logger.warn('[SNS] No IT RSS items found');
+            return;
+        }
+        
+        // 최신 30개 기사만 가져오기
+        const items = feed.items.slice(0, 30);
+        
+        // LLM으로 쉬운 기사 필터링 및 정리
+        const articleSummaries = items.map((item, idx) => {
+            const title = item.title || '';
+            const snippet = (item.contentSnippet || item.content || '')
+                .replace(/<[^>]*>/g, '')
+                .replace(/\n+/g, ' ')
+                .trim()
+                .substring(0, 150);
+            return `[${idx}] ${title}\n${snippet}`;
+        }).join('\n\n');
+        
+        const filterPrompt = `다음은 IT 기술 뉴스 목록입니다. 이 중에서 일반인이 이해하기 쉽고, 전문 용어가 적으며, 흥미로운 기사들을 선택해주세요.
+
+${articleSummaries}
+
+[선택 기준]:
+- 전문적이거나 어려운 기술 용어가 적을 것
+- 일반인도 이해할 수 있는 내용일 것
+- 너무 개발자 중심적이지 않을 것
+- 흥미롭고 대중적인 주제일 것
+
+상위 10개 기사의 번호를 쉼표로 구분하여 출력하세요. (예: 0,2,5,7,9,11,13,15,17,19)
+만약 적합한 기사가 10개 미만이면 있는 만큼만 출력하세요.`;
+        
+        const aiResponse = await callGemini(filterPrompt);
+        const selectedIndices = aiResponse.trim().split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0 && n < items.length);
+        
+        if (selectedIndices.length === 0) {
+            logger.warn('[SNS] No suitable IT articles found by LLM');
+            // Fallback: 첫 10개 사용
+            itTrendCache = items.slice(0, 10);
+        } else {
+            itTrendCache = selectedIndices.map(idx => items[idx]);
+        }
+        
+        lastItTrendUpdate = now;
+        logger.info(`[SNS] IT trend cache updated with ${itTrendCache.length} articles`);
+        
+    } catch (error) {
+        logger.error(`[SNS] Error updating IT trend cache: ${error.message}`);
+    }
+}
+
+/**
+ * 주식 트렌드 캐시 갱신 (6시간마다)
+ * - 한국경제 RSS에서 기사를 가져와 캐싱
+ */
+async function updateStockTrendCache() {
+    const now = Date.now();
+    
+    // 캐시가 유효하면 갱신하지 않음
+    if (now - lastStockTrendUpdate < TREND_CACHE_INTERVAL && stockTrendCache.length > 0) {
+        logger.info(`[SNS] Stock trend cache is still valid (${stockTrendCache.length} items)`);
+        return;
+    }
+    
+    try {
+        logger.info('[SNS] Updating stock trend cache...');
+        
+        const Parser = require('rss-parser');
+        const parser = new Parser();
+        const rssUrl = 'https://www.hankyung.com/feed/finance';
+        
+        const feed = await parser.parseURL(rssUrl);
+        
+        if (!feed.items || feed.items.length === 0) {
+            logger.warn('[SNS] No stock RSS items found');
+            return;
+        }
+        
+        // 최신 30개 기사 캐싱
+        stockTrendCache = feed.items.slice(0, 30);
+        lastStockTrendUpdate = now;
+        logger.info(`[SNS] Stock trend cache updated with ${stockTrendCache.length} articles`);
+        
+    } catch (error) {
+        logger.error(`[SNS] Error updating stock trend cache: ${error.message}`);
+    }
+}
+
+/**
+ * Exaone이 모든 post를 순회하면서 자신의 댓글이 없는 post에 댓글 작성
+ * - autoAddComment에서 호출됨
+ * - post 내용 + 기존 댓글들을 context로 활용
+ */
+async function autoCommentExaoneOnAllPosts() {
+    try {
+        logger.info('[SNS] Exaone starting to scan all posts');
+        
+        // 최근 20개 post 가져오기
+        const postsSnapshot = await db.collection(COL_POSTS)
+            .orderBy('createdAt', 'desc')
+            .limit(20)
+            .get();
+        
+        if (postsSnapshot.empty) {
+            logger.info('[SNS] No posts found for Exaone commenting');
+            return;
+        }
+        
+        let commentedCount = 0;
+        
+        // 각 post 순회
+        for (const postDoc of postsSnapshot.docs) {
+            const postId = postDoc.id;
+            const postData = postDoc.data();
+            const postAuthor = postData.author;
+            const postContent = postData.content;
+            
+            // 해당 post에 Exaone의 댓글이 이미 있는지 확인
+            const exaoneCommentsSnapshot = await db.collection(COL_COMMENTS)
+                .where('postId', '==', postId)
+                .where('author', '==', AUTHOR_KEYS.EXAONE)
+                .limit(1)
+                .get();
+            
+            // Exaone 댓글이 이미 있으면 스킵
+            if (!exaoneCommentsSnapshot.empty) {
+                logger.info(`[SNS] Exaone already commented on post ${postId}, skipping`);
+                continue;
+            }
+            
+            // Exaone 자신이 작성한 post면 스킵
+            if (postAuthor === AUTHOR_KEYS.EXAONE) {
+                logger.info(`[SNS] Skipping Exaone's own post ${postId}`);
+                continue;
+            }
+            
+            logger.info(`[SNS] Exaone commenting on post ${postId} by ${postAuthor}`);
+            
+            // 해당 post의 모든 댓글 가져오기 (context로 사용)
+            const commentsSnapshot = await db.collection(COL_COMMENTS)
+                .where('postId', '==', postId)
+                .orderBy('createdAt', 'asc')
+                .get();
+            
+            let existingCommentsText = '';
+            if (!commentsSnapshot.empty) {
+                const commentsList = commentsSnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    const truncatedContent = data.content.length > 150 
+                        ? data.content.substring(0, 150) + '...' 
+                        : data.content;
+                    return `${getDisplayName(data.author)}: ${truncatedContent}`;
+                });
+                existingCommentsText = '\n\n[기존 댓글들]:\n' + commentsList.join('\n');
+            } else {
+                existingCommentsText = '\n\n[기존 댓글]: 아직 댓글이 없습니다.';
+            }
+            
+            // Exaone에게 댓글 작성 요청
+            const prompt = `
+다음 게시글과 기존 댓글들을 보고 자연스럽고 적절한 댓글을 작성해주세요.
+
+[게시글 작성자]: ${getDisplayName(postAuthor)}
+[게시글 내용]:
+${postContent}${existingCommentsText}
+
+[댓글 작성 규칙]:
+1. 게시글 내용과 기존 댓글들의 흐름을 고려하여 자연스럽게 작성하세요.
+2. 기존 댓글에서 다룬 내용과 중복되지 않도록 새로운 관점이나 의견을 제시하세요.
+3. 100자 이내로 간결하게 작성하세요.
+4. 자연스러운 한국어로 작성하세요.
+5. 게시글 내용이 부적절하거나 댓글을 달 가치가 없다고 판단되면 "SKIP"이라고만 출력하세요.
+
+[금지 사항]:
+- 이모지 사용 금지
+- 해시태그(#) 사용 금지
+- 특수문자(---, ***, 등) 사용 금지
+- [댓글 내용], [작성] 같은 메타 텍스트 금지
+
+출력 형식:
+- 댓글 작성 안 함: "SKIP"
+- 댓글 작성: 댓글 본문만 출력 (다른 텍스트 없이)
+`;
+
+            try {
+                let commentContent = await callExaoneSNS(prompt);
+                commentContent = commentContent.trim()
+                    .replace(/^---+\s*/gm, '')
+                    .replace(/\s*---+$/gm, '')
+                    .replace(/^\[댓글 내용\]\s*/i, '')
+                    .replace(/^\[작성\]\s*/i, '')
+                    .replace(/#\S+/g, '')
+                    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+                    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+                    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+                    .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+                    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+                    .replace(/[\u{2700}-\u{27BF}]/gu, '')
+                    .trim();
+                
+                // SKIP 판단
+                if (commentContent.includes("SKIP") || commentContent.length < 5) {
+                    logger.info(`[SNS] Exaone decided to skip post ${postId}`);
+                    continue;
+                }
+                
+                // 댓글 저장
+                const postRef = db.collection(COL_POSTS).doc(postId);
+                const commentRef = db.collection(COL_COMMENTS).doc();
+                
+                await db.runTransaction(async (t) => {
+                    const postDoc = await t.get(postRef);
+                    if (!postDoc.exists) {
+                        throw new Error("게시글이 삭제되었습니다.");
+                    }
+                    
+                    t.set(commentRef, {
+                        postId: postId,
+                        author: AUTHOR_KEYS.EXAONE,
+                        content: commentContent,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    t.update(postRef, {
+                        commentCount: admin.firestore.FieldValue.increment(1)
+                    });
+                });
+                
+                commentedCount++;
+                logger.info(`[SNS] Exaone commented on post ${postId}: ${commentContent.substring(0, 50)}...`);
+                
+                // 서버 부하 방지를 위해 각 댓글 사이에 약간의 딜레이
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+            } catch (error) {
+                logger.error(`[SNS] Exaone failed to comment on post ${postId}: ${error.message}`);
+                // 에러가 나도 다음 post로 계속 진행
+                continue;
+            }
+        }
+        
+        logger.info(`[SNS] Exaone finished scanning. Commented on ${commentedCount} posts`);
+        
+    } catch (error) {
+        logger.error(`[SNS] autoCommentExaoneOnAllPosts Error: ${error.message}`);
+    }
+}
+
 
 /**
  * 검색이 필요한지 판단하는 헬퍼 함수
@@ -1484,16 +1691,24 @@ async function replyToPost(postId, userContent) {
 
         logger.info(`[SNS] ${nextCommenter} replying to User's content`);
 
-        // createAIReply를 사용하여 검색 기능 포함한 답변 생성
-        await createAIReply(postId, userContent, nextCommenter);
+        // Gemini/GPT 답변 (실패해도 Exaone 답변은 계속 진행)
+        try {
+            await createAIReply(postId, userContent, nextCommenter);
+        } catch (aiError) {
+            logger.error(`[SNS] ${nextCommenter} reply failed: ${aiError.message}`);
+        }
         
-        // Exaone이 실행 중이면 추가로 답변
+        // Exaone이 실행 중이면 무조건 답변 (다른 LLM 성공/실패와 무관)
         const isExaoneAvailable = await checkExaoneAvailable();
         if (isExaoneAvailable) {
             logger.info(`[SNS] Exaone also replying to User's content`);
-            // 짧은 대기 후 Exaone 답변 (이전 댓글이 저장될 시간 확보)
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            await createAIReply(postId, userContent, AUTHOR_KEYS.EXAONE);
+            try {
+                // 짧은 대기 후 Exaone 답변 (이전 댓글이 저장될 시간 확보)
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                await createAIReply(postId, userContent, AUTHOR_KEYS.EXAONE);
+            } catch (exaoneError) {
+                logger.error(`[SNS] Exaone reply failed: ${exaoneError.message}`);
+            }
         }
 
     } catch (error) {
@@ -1987,3 +2202,23 @@ function extractKeywords(text) {
     
     return words;
 }
+
+/**
+ * 트렌드 캐시 초기화 (서버 시작 시 호출)
+ * - IT 트렌드와 주식 트렌드 캐시를 미리 로드
+ */
+exports.initTrendCache = async function() {
+    try {
+        logger.info('[SNS] Initializing trend cache...');
+        
+        // IT 트렌드 캐시 초기화
+        await updateItTrendCache();
+        
+        // 주식 트렌드 캐시 초기화
+        await updateStockTrendCache();
+        
+        logger.info('[SNS] Trend cache initialization completed');
+    } catch (error) {
+        logger.error(`[SNS] Error initializing trend cache: ${error.message}`);
+    }
+};
