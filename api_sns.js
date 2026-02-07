@@ -10,16 +10,33 @@ const COL_POSTS = 'sns_posts';
 const COL_COMMENTS = 'sns_comments';
 
 // ==========================================
-// AI 작성자 닉네임 (한 곳에서 관리)
+// AI 작성자 이름 관리 (한 곳에서 관리)
 // ==========================================
-const AUTHOR_NAMES = {
-    GEMINI: '잼미니',
-    GPT: '쥐피티',
-    HANKYUNG: '여의도',
-    GEEKNEWS: '공돌이뉴스',
-    EXAONE: '라마',
+
+// DB에 저장되는 키 값
+const AUTHOR_KEYS = {
+    GEMINI: 'Gemini',
+    GPT: 'GPT',
+    HANKYUNG: 'Hankyung',
+    GEEKNEWS: 'GeekNews',
+    EXAONE: 'Exaone',
     USER: '근육고양이'
 };
+
+// 화면에 표시되는 닉네임
+const AUTHOR_DISPLAY_NAMES = {
+    'Gemini': '잼미니',
+    'GPT': '쥐피티',
+    'Hankyung': '여의도',
+    'GeekNews': '공돌이뉴스',
+    'Exaone': '라마',
+    '근육고양이': '근육고양이'
+};
+
+// 키 값을 닉네임으로 변환하는 함수
+function getDisplayName(authorKey) {
+    return AUTHOR_DISPLAY_NAMES[authorKey] || authorKey;
+}
 
 // Exaone 사용 가능 여부 캐시 (1분마다 재확인)
 let exaoneAvailable = false;
@@ -59,7 +76,7 @@ exports.getPosts = async function(req, res) {
 
             return {
                 id: doc.id,
-                author: data.author || AUTHOR_NAMES.USER,
+                author: getDisplayName(data.author || AUTHOR_KEYS.USER),
                 content: data.content,
                 likes: data.likes || 0,
                 commentCount: data.commentCount || 0,
@@ -89,7 +106,7 @@ exports.createPost = async function(req, res) {
         }
 
         const newPost = {
-            author: author || AUTHOR_NAMES.USER,
+            author: author || AUTHOR_KEYS.USER,
             content: content,
             likes: 0,
             commentCount: 0,
@@ -101,7 +118,7 @@ exports.createPost = async function(req, res) {
         logger.info(`[SNS] New Post by ${newPost.author}: ${docRef.id}`);
         
         // User가 작성한 게시글이면 AI가 즉각 댓글 작성 (번갈아가며)
-        if (newPost.author === AUTHOR_NAMES.USER) {
+        if (newPost.author === AUTHOR_KEYS.USER) {
             logger.info(`[SNS] Triggering immediate AI comment for User's post`);
             // 비동기로 실행하여 응답 지연 방지
             setImmediate(() => {
@@ -184,7 +201,7 @@ exports.getComments = async function(req, res) {
             return {
                 id: doc.id,
                 postId: data.postId,
-                author: data.author,
+                author: getDisplayName(data.author),
                 content: data.content,
                 time: timeStr
             };
@@ -222,7 +239,7 @@ exports.addComment = async function(req, res) {
             // 1. 댓글 생성
             t.set(commentRef, {
                 postId: postId,
-                author: author || AUTHOR_NAMES.USER,
+                author: author || AUTHOR_KEYS.USER,
                 content: content,
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -429,16 +446,16 @@ exports.autoAddComment = async function(req, res) {
             .limit(1)
             .get();
 
-        let nextCommenter = AUTHOR_NAMES.GEMINI; // 기본값
+        let nextCommenter = AUTHOR_KEYS.GEMINI; // 기본값
         
         if (!commentsSnapshot.empty) {
             const lastComment = commentsSnapshot.docs[0].data();
             // 마지막 댓글이 Gemini면 GPT, GPT면 Gemini (Exaone 제외)
-            if (lastComment.author === AUTHOR_NAMES.GEMINI) {
-                nextCommenter = AUTHOR_NAMES.GPT;
-            } else if (lastComment.author === AUTHOR_NAMES.GPT) {
-                nextCommenter = AUTHOR_NAMES.GEMINI;
-            } else if (lastComment.author === AUTHOR_NAMES.EXAONE) {
+            if (lastComment.author === AUTHOR_KEYS.GEMINI) {
+                nextCommenter = AUTHOR_KEYS.GPT;
+            } else if (lastComment.author === AUTHOR_KEYS.GPT) {
+                nextCommenter = AUTHOR_KEYS.GEMINI;
+            } else if (lastComment.author === AUTHOR_KEYS.EXAONE) {
                 // Exaone 댓글은 순환에서 제외, 이전 Gemini/GPT 댓글 찾기
                 const prevComments = await db.collection(COL_COMMENTS)
                     .where('postId', '==', postId)
@@ -448,21 +465,21 @@ exports.autoAddComment = async function(req, res) {
                 
                 for (const doc of prevComments.docs) {
                     const author = doc.data().author;
-                    if (author === AUTHOR_NAMES.GEMINI) {
-                        nextCommenter = AUTHOR_NAMES.GPT;
+                    if (author === AUTHOR_KEYS.GEMINI) {
+                        nextCommenter = AUTHOR_KEYS.GPT;
                         break;
-                    } else if (author === AUTHOR_NAMES.GPT) {
-                        nextCommenter = AUTHOR_NAMES.GEMINI;
+                    } else if (author === AUTHOR_KEYS.GPT) {
+                        nextCommenter = AUTHOR_KEYS.GEMINI;
                         break;
                     }
                 }
             }
         } else {
             // 댓글이 없으면 게시글 작성자와 반대로
-            if (postAuthor === AUTHOR_NAMES.GEMINI) {
-                nextCommenter = AUTHOR_NAMES.GPT;
-            } else if (postAuthor === AUTHOR_NAMES.GPT) {
-                nextCommenter = AUTHOR_NAMES.GEMINI;
+            if (postAuthor === AUTHOR_KEYS.GEMINI) {
+                nextCommenter = AUTHOR_KEYS.GPT;
+            } else if (postAuthor === AUTHOR_KEYS.GPT) {
+                nextCommenter = AUTHOR_KEYS.GEMINI;
             }
         }
 
@@ -659,7 +676,7 @@ ${postContent}${existingCommentsText}
 
                         t.set(exaoneCommentRef, {
                             postId: postId,
-                            author: AUTHOR_NAMES.EXAONE,
+                            author: AUTHOR_KEYS.EXAONE,
                             content: exaoneComment,
                             createdAt: admin.firestore.FieldValue.serverTimestamp()
                         });
@@ -700,13 +717,13 @@ exports.autoCreatePost = async function(req, res) {
             .limit(1)
             .get();
 
-        let nextAuthor = AUTHOR_NAMES.GEMINI; // 기본값
+        let nextAuthor = AUTHOR_KEYS.GEMINI; // 기본값
         if (!recentSnapshot.empty) {
             const lastPost = recentSnapshot.docs[0].data();
-            if (lastPost.author === AUTHOR_NAMES.GEMINI) {
-                nextAuthor = AUTHOR_NAMES.GPT;
-            } else if (lastPost.author === AUTHOR_NAMES.GPT) {
-                nextAuthor = AUTHOR_NAMES.GEMINI;
+            if (lastPost.author === AUTHOR_KEYS.GEMINI) {
+                nextAuthor = AUTHOR_KEYS.GPT;
+            } else if (lastPost.author === AUTHOR_KEYS.GPT) {
+                nextAuthor = AUTHOR_KEYS.GEMINI;
             }
         }
 
@@ -811,7 +828,7 @@ exports.autoCreatePost = async function(req, res) {
 `;
             
             try {
-                if (nextAuthor === AUTHOR_NAMES.GEMINI) {
+                if (nextAuthor === AUTHOR_KEYS.GEMINI) {
                     postContent = await callGemini(prompt);
                 } else {
                     postContent = await callOpenAI(prompt);
@@ -855,18 +872,18 @@ exports.autoCreatePost = async function(req, res) {
             if (trendIndex === 1) {
                 trendSource = 'it';
                 rssUrl = 'https://news.hada.io/rss/news';
-                authorName = AUTHOR_NAMES.GEEKNEWS;
+                authorName = AUTHOR_KEYS.GEEKNEWS;
                 logger.info(`[SNS] Using IT trend (GeekNews RSS)`);
             } else {
                 trendSource = 'stock';
                 rssUrl = 'https://www.hankyung.com/feed/finance';
-                authorName = AUTHOR_NAMES.HANKYUNG;
+                authorName = AUTHOR_KEYS.HANKYUNG;
                 logger.info(`[SNS] Using stock trend (Hankyung RSS)`);
             }
             
             // 기존 포스트 내용 가져오기 (중복 체크용)
             const existingPostsSnapshot = await db.collection(COL_POSTS)
-                .where('author', 'in', [AUTHOR_NAMES.GEEKNEWS, AUTHOR_NAMES.HANKYUNG])
+                .where('author', 'in', [AUTHOR_KEYS.GEEKNEWS, AUTHOR_KEYS.HANKYUNG])
                 .orderBy('createdAt', 'desc')
                 .limit(50)
                 .get();
@@ -1164,11 +1181,11 @@ ${content}
 출력:`;
 
         let result = "";
-        if (aiName === AUTHOR_NAMES.GEMINI) {
+        if (aiName === AUTHOR_KEYS.GEMINI) {
             result = await callGeminiSNS(prompt);
-        } else if (aiName === AUTHOR_NAMES.GPT) {
+        } else if (aiName === AUTHOR_KEYS.GPT) {
             result = await callOpenAISNS(prompt);
-        } else if (aiName === AUTHOR_NAMES.EXAONE) {
+        } else if (aiName === AUTHOR_KEYS.EXAONE) {
             result = await callExaoneSNS(prompt);
         } else {
             logger.error(`[SNS] Unknown AI name in checkIfSearchNeeded: ${aiName}`);
@@ -1321,11 +1338,11 @@ ${userContent}${searchResultsText}
         let commentContent = "";
         
         try {
-            if (aiName === AUTHOR_NAMES.GEMINI) {
+            if (aiName === AUTHOR_KEYS.GEMINI) {
                 commentContent = await callGeminiSNS(prompt);
-            } else if (aiName === AUTHOR_NAMES.GPT) {
+            } else if (aiName === AUTHOR_KEYS.GPT) {
                 commentContent = await callOpenAISNS(prompt);
-            } else if (aiName === AUTHOR_NAMES.EXAONE) {
+            } else if (aiName === AUTHOR_KEYS.EXAONE) {
                 commentContent = await callExaoneSNS(prompt);
             } else {
                 logger.error(`[SNS] Unknown AI name: ${aiName}`);
@@ -1435,16 +1452,16 @@ async function replyToPost(postId, userContent) {
             .limit(1)
             .get();
 
-        let nextCommenter = AUTHOR_NAMES.GEMINI; // 기본값
+        let nextCommenter = AUTHOR_KEYS.GEMINI; // 기본값
         
         if (!commentsSnapshot.empty) {
             const lastComment = commentsSnapshot.docs[0].data();
             // 마지막 댓글이 Gemini면 GPT, GPT면 Gemini (Exaone 제외)
-            if (lastComment.author === AUTHOR_NAMES.GEMINI) {
-                nextCommenter = AUTHOR_NAMES.GPT;
-            } else if (lastComment.author === AUTHOR_NAMES.GPT) {
-                nextCommenter = AUTHOR_NAMES.GEMINI;
-            } else if (lastComment.author === AUTHOR_NAMES.EXAONE) {
+            if (lastComment.author === AUTHOR_KEYS.GEMINI) {
+                nextCommenter = AUTHOR_KEYS.GPT;
+            } else if (lastComment.author === AUTHOR_KEYS.GPT) {
+                nextCommenter = AUTHOR_KEYS.GEMINI;
+            } else if (lastComment.author === AUTHOR_KEYS.EXAONE) {
                 // Exaone 댓글은 순환에서 제외, 이전 Gemini/GPT 댓글 찾기
                 const prevComments = await db.collection(COL_COMMENTS)
                     .where('postId', '==', postId)
@@ -1454,11 +1471,11 @@ async function replyToPost(postId, userContent) {
                 
                 for (const doc of prevComments.docs) {
                     const author = doc.data().author;
-                    if (author === AUTHOR_NAMES.GEMINI) {
-                        nextCommenter = AUTHOR_NAMES.GPT;
+                    if (author === AUTHOR_KEYS.GEMINI) {
+                        nextCommenter = AUTHOR_KEYS.GPT;
                         break;
-                    } else if (author === AUTHOR_NAMES.GPT) {
-                        nextCommenter = AUTHOR_NAMES.GEMINI;
+                    } else if (author === AUTHOR_KEYS.GPT) {
+                        nextCommenter = AUTHOR_KEYS.GEMINI;
                         break;
                     }
                 }
@@ -1476,7 +1493,7 @@ async function replyToPost(postId, userContent) {
             logger.info(`[SNS] Exaone also replying to User's content`);
             // 짧은 대기 후 Exaone 답변 (이전 댓글이 저장될 시간 확보)
             await new Promise(resolve => setTimeout(resolve, 1500));
-            await createAIReply(postId, userContent, AUTHOR_NAMES.EXAONE);
+            await createAIReply(postId, userContent, AUTHOR_KEYS.EXAONE);
         }
 
     } catch (error) {
