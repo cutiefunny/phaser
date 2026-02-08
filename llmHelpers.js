@@ -220,31 +220,55 @@ exports.callExaoneSNS = async function(prompt) {
 
 /**
  * [헬퍼] Exaone 채팅 API 호출 (일반 대화용)
- * - Ollama에서 실행되는 exaone3.5 모델
- * - 시스템 프롬프트와 사용자 메시지를 받아 응답 생성
+ * - 환경에 따라 로컬(q4_K_M)과 서버(7.8b) 모델 구분
+ * - Model Not Found 발생 시 자동 Fallback 처리
  */
 exports.callExaone = async function(messages, systemPrompt = "You are a helpful assistant.") {
     try {
         const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         
-        // messages 배열에 시스템 메시지 추가
+        // 1. 환경에 따른 기본 모델 결정
+        // LOCAL_AI_URL이 'localhost'를 포함하면 로컬로 간주
+        const isLocal = baseUrl.includes('localhost');
+        let targetModel = isLocal ? "exaone3.5:7.8b-instruct-q4_K_M" : "exaone3.5:7.8b";
+
         const formattedMessages = [
             { role: "system", content: systemPrompt },
             ...messages
         ];
-        
-        const response = await axios.post(url, {
-            model: "exaone3.5:7.8b-instruct-q4_K_M",
-            messages: formattedMessages,
-            stream: false
-        }, {
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            timeout: 60000
-        });
 
+        // API 호출을 위한 내부 함수
+        const fetchAI = async (modelName) => {
+            return await axios.post(url, {
+                model: modelName,
+                messages: formattedMessages,
+                stream: false
+            }, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 60000
+            });
+        };
+
+        let response;
+        try {
+            // 2. 1차 시도
+            response = await fetchAI(targetModel);
+        } catch (firstError) {
+            // 3. 'model not found' 에러가 발생한 경우 예비 모델로 2차 시도
+            const errorMsg = firstError.response?.data?.error || firstError.message;
+            
+            if (errorMsg.includes('not found') && targetModel === "exaone3.5:7.8b-instruct-q4_K_M") {
+                logger.warn(`[Exaone] ${targetModel} 모델이 없습니다. exaone3.5:7.8b로 재시도합니다.`);
+                targetModel = "exaone3.5:7.8b";
+                response = await fetchAI(targetModel);
+            } else {
+                // 다른 종류의 에러라면 그대로 상위 catch로 던짐
+                throw firstError;
+            }
+        }
+
+        // 4. 응답 처리
         if (
             response.data && 
             response.data.message &&
