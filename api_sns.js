@@ -33,16 +33,28 @@ const AUTHOR_DISPLAY_NAMES = {
     '근육고양이': '근육고양이'
 };
 
+// Exaone이 로컬에서 호출되는지 서버에서 호출되는지 판단하는 헬퍼 함수
+function getExaoneSource() {
+    const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
+    // localhost 또는 127.0.0.1이 포함되어 있으면 로컬, 아니면 서버
+    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+        return 'local';
+    } else {
+        return 'server';
+    }
+}
+
 // 키 값을 닉네임으로 변환하는 함수
-function getDisplayName(authorKey) {
-    // Exaone의 경우 로컬/서버 구분하여 닉네임 설정
+function getDisplayName(authorKey, exaoneSource) {
+    // Exaone의 경우 저장된 exaoneSource 정보로 닉네임 설정
     if (authorKey === 'Exaone') {
-        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
-        // localhost 또는 127.0.0.1이 포함되어 있으면 로컬, 아니면 서버
-        if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+        if (exaoneSource === 'local') {
             return '빠른 라마';
-        } else {
+        } else if (exaoneSource === 'server') {
             return '느린 라마';
+        } else {
+            // exaoneSource 정보가 없는 경우 (기존 데이터 호환성)
+            return '라마';
         }
     }
     return AUTHOR_DISPLAY_NAMES[authorKey] || authorKey;
@@ -93,7 +105,7 @@ exports.getPosts = async function(req, res) {
 
             return {
                 id: doc.id,
-                author: getDisplayName(data.author || AUTHOR_KEYS.USER),
+                author: getDisplayName(data.author || AUTHOR_KEYS.USER, data.exaoneSource),
                 content: data.content,
                 likes: data.likes || 0,
                 commentCount: data.commentCount || 0,
@@ -218,7 +230,7 @@ exports.getComments = async function(req, res) {
             return {
                 id: doc.id,
                 postId: data.postId,
-                author: getDisplayName(data.author),
+                author: getDisplayName(data.author, data.exaoneSource),
                 content: data.content,
                 time: timeStr
             };
@@ -599,6 +611,7 @@ ${postContent}${existingCommentsText}
                                 postId: postId,
                                 author: AUTHOR_KEYS.EXAONE,
                                 content: exaoneComment,
+                                exaoneSource: getExaoneSource(),
                                 createdAt: admin.firestore.FieldValue.serverTimestamp()
                             });
 
@@ -1335,6 +1348,7 @@ ${postContent}${existingCommentsText}
                         postId: postId,
                         author: AUTHOR_KEYS.EXAONE,
                         content: commentContent,
+                        exaoneSource: getExaoneSource(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp()
                     });
                     
@@ -1602,12 +1616,19 @@ ${userContent}${searchResultsText}
                 throw new Error("게시글이 삭제되었습니다.");
             }
 
-            t.set(commentRef, {
+            const commentData = {
                 postId: postId,
                 author: aiName,
                 content: commentContent,
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+            };
+            
+            // Exaone인 경우 로컬/서버 정보 추가
+            if (aiName === AUTHOR_KEYS.EXAONE) {
+                commentData.exaoneSource = getExaoneSource();
+            }
+            
+            t.set(commentRef, commentData);
 
             t.update(postRef, {
                 commentCount: admin.firestore.FieldValue.increment(1)
@@ -1618,40 +1639,6 @@ ${userContent}${searchResultsText}
 
     } catch (error) {
         logger.error(`[SNS] createAIReply Error (${aiName}): ${error.message}`);
-    }
-}
-
-/**
- * User의 게시글/댓글에 Gemini와 GPT 모두 답변하는 헬퍼 함수
- */
-async function replyBothAIs(postId, userContent) {
-    try {
-        logger.info(`[SNS] Both AIs replying to User's content on post ${postId}`);
-        
-        // 사용자의 댓글이 질문인지 확인
-        const isQuestion = userContent.includes('?') || 
-                          userContent.includes('？') ||
-                          /어떻게|어떤|왜|뭐|무엇|언제|어디|누가|질문|알려|궁금/.test(userContent);
-        
-        // Gemini가 먼저 답변
-        await createAIReply(postId, userContent, 'Gemini');
-        
-        // 질문성 댓글이면 Gemini만 답변하고 GPT는 답변하지 않음
-        if (isQuestion) {
-            logger.info(`[SNS] User's content is a question. Only Gemini replied, GPT skipped.`);
-            return;
-        }
-        
-        // 질문이 아닌 경우에만 GPT도 답변
-        // 짧은 대기 후 GPT가 답변 (Gemini 댓글이 저장될 시간 확보)
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // GPT가 답변
-        await createAIReply(postId, userContent, 'GPT');
-        
-        logger.info(`[SNS] Both AIs replied successfully to post ${postId}`);
-    } catch (error) {
-        logger.error(`[SNS] replyBothAIs Error: ${error.message}`);
     }
 }
 
@@ -1723,68 +1710,6 @@ async function replyToPost(postId, userContent) {
 
     } catch (error) {
         logger.error(`[SNS] replyToPost Error: ${error.message}`);
-    }
-}
-
-/**
- * 최신 뉴스/이슈 검색 헬퍼
- * - Google Trends API 또는 RSS 피드에서 키워드 수집
- * - 실패 시 기본 AI 관련 주제 반환
- */
-async function searchLatestNews() {
-    try {
-        // 옵션 1: 저장된 뉴스 DB에서 최근 AI/기술 관련 뉴스 가져오기
-        const newsSnapshot = await db.collection('eink-news')
-            .orderBy('createdAt', 'desc')
-            .limit(5)
-            .get();
-
-        if (!newsSnapshot.empty) {
-            const newsTitles = newsSnapshot.docs.map(doc => {
-                const data = doc.data();
-                return `${data.title} - ${data.summary ? data.summary.substring(0, 100) : ''}`;
-            });
-            
-            if (newsTitles.length > 0) {
-                logger.info(`[SNS] Found ${newsTitles.length} recent news items`);
-                return newsTitles;
-            }
-        }
-
-        // 옵션 2: 외부 RSS 피드 (AI 관련 뉴스)
-        const rssFeeds = [
-            'https://news.google.com/rss/search?q=AI+인공지능&hl=ko&gl=KR&ceid=KR:ko',
-            'https://news.google.com/rss/search?q=ChatGPT+Gemini&hl=ko&gl=KR&ceid=KR:ko'
-        ];
-
-        const Parser = require('rss-parser');
-        const parser = new Parser();
-        
-        for (const feedUrl of rssFeeds) {
-            try {
-                const feed = await parser.parseURL(feedUrl);
-                if (feed.items && feed.items.length > 0) {
-                    const titles = feed.items.slice(0, 5).map(item => item.title);
-                    logger.info(`[SNS] Found ${titles.length} items from RSS feed`);
-                    return titles;
-                }
-            } catch (rssError) {
-                logger.warn(`[SNS] RSS feed error: ${rssError.message}`);
-            }
-        }
-
-        // 옵션 3: 기본 AI 주제 (검색 실패 시)
-        logger.info(`[SNS] Using fallback AI topics`);
-        return [
-            "최근 AI 기술 발전 동향",
-            "ChatGPT와 Gemini의 최신 업데이트",
-            "프로그래밍 트렌드와 개발자 도구",
-            "실시간 기술 이슈"
-        ];
-
-    } catch (error) {
-        logger.error(`[SNS] searchLatestNews Error: ${error.message}`);
-        return [];
     }
 }
 

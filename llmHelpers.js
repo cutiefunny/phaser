@@ -195,7 +195,7 @@ exports.callExaoneSNS = async function(prompt) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            timeout: 30000
+            timeout: 180000
         });
 
         if (
