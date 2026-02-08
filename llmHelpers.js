@@ -174,7 +174,7 @@ exports.callOpenAISNS = async function(prompt) {
  * [SNS용] Exaone (Ollama) 호출 (균형잡힌 관점, 반말)
  * - Ollama에서 실행되는 exaone3.5:7.8b-instruct-q4_K_M 모델
  * - 항상 반말 사용
- */
+ */ 
 exports.callExaoneSNS = async function(prompt) {
     try {
         const characterPrefix = `
