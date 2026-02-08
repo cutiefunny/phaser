@@ -35,6 +35,16 @@ const AUTHOR_DISPLAY_NAMES = {
 
 // 키 값을 닉네임으로 변환하는 함수
 function getDisplayName(authorKey) {
+    // Exaone의 경우 로컬/서버 구분하여 닉네임 설정
+    if (authorKey === 'Exaone') {
+        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
+        // localhost 또는 127.0.0.1이 포함되어 있으면 로컬, 아니면 서버
+        if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+            return '빠른 라마';
+        } else {
+            return '느린 라마';
+        }
+    }
     return AUTHOR_DISPLAY_NAMES[authorKey] || authorKey;
 }
 
@@ -1057,7 +1067,7 @@ async function checkExaoneAvailable() {
         // exaone3.5:7.8b-instruct-q4_K_M 모델이 있는지 확인
         if (response.data && response.data.models) {
             const hasExaone = response.data.models.some(model => 
-                model.name && model.name.includes('exaone3.5:7.8b-instruct-q4_K_M')
+                model.name && (model.name.includes('exaone3.5:7.8b-instruct-q4_K_M') || model.name.includes('exaone3.5:7.8b'))
             );
             exaoneAvailable = hasExaone;
             lastExaoneCheck = now;

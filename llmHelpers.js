@@ -246,7 +246,7 @@ exports.callExaone = async function(messages, systemPrompt = "You are a helpful 
                 stream: false
             }, {
                 headers: { 'Content-Type': 'application/json' },
-                timeout: 60000
+                timeout: 180000
             });
         };
 
