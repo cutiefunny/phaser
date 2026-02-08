@@ -181,7 +181,7 @@ exports.callExaoneSNS = async function(prompt) {
 인터넷에서 흔히 볼 수 있는 반말체로 간결하게 작성해줘.
 `;
 
-        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
+        const baseUrl = process.env.LOCAL_PC_AI_URL || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         
         const response = await axios.post(url, {
@@ -225,13 +225,11 @@ exports.callExaoneSNS = async function(prompt) {
  */
 exports.callExaone = async function(messages, systemPrompt = "You are a helpful assistant.") {
     try {
-        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
+        const baseUrl = process.env.LOCAL_PC_AI_URL || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         
         // 1. 환경에 따른 기본 모델 결정
-        // LOCAL_AI_URL이 'localhost'를 포함하면 로컬로 간주
-        const isLocal = baseUrl.includes('localhost');
-        let targetModel = isLocal ? "exaone3.5:7.8b-instruct-q4_K_M" : "exaone3.5:7.8b";
+        let targetModel = "exaone3.5:7.8b-instruct-q4_K_M";
 
         const formattedMessages = [
             { role: "system", content: systemPrompt },
