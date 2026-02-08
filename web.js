@@ -132,7 +132,7 @@ app.post('/sns/deleteComment', apiSns.deleteComment); // 댓글 삭제
 app.post('/sns/autoCreatePost', apiSns.autoCreatePost); // AI 자동 게시
 app.post('/sns/autoAddComment', apiSns.autoAddComment); // AI 자동 댓글
 app.post('/sns/autoDeleteOldPosts', apiSns.autoDeleteOldPosts); // 24시간 지난 게시글 자동 삭제
-app.get('/sns/getTrend', apiSns.getTrend); // Ezme 실시간 트렌드
+// app.get('/sns/getTrend', apiSns.getTrend); // Ezme 실시간 트렌드 - 비활성화됨
 app.get('/sns/getItTrend', apiSns.getItTrend); // 긱뉴스 IT 트렌드
 app.get('/sns/getStockTrend', apiSns.getStockTrend); // 한국경제 주식 트렌드
 
