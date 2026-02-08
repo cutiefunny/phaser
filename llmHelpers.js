@@ -225,7 +225,7 @@ exports.callExaoneSNS = async function(prompt) {
  */
 exports.callExaone = async function(messages, systemPrompt = "You are a helpful assistant.") {
     try {
-        const baseUrl = process.env.LOCAL_PC_AI_URL || 'http://localhost:11434';
+        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         
         // 1. 환경에 따른 기본 모델 결정
