@@ -941,9 +941,12 @@ async function checkExaoneAvailable() {
     if (now - lastExaoneCheck < EXAONE_CHECK_INTERVAL) {
         return exaoneAvailable;
     }
+
+    const baseUrl = process.env.LOCAL_PC_AI_URL || 'http://localhost:11434';
+    const url = `${baseUrl}/api/chat`;
     
     try {
-        const response = await axios.get('http://localhost:11434/api/tags', {
+        const response = await axios.get(`${baseUrl}/api/tags`, {
             timeout: 2000
         });
         
