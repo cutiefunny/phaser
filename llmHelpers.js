@@ -181,7 +181,7 @@ exports.callExaoneSNS = async function(prompt) {
 인터넷에서 흔히 볼 수 있는 반말체로 간결하게 작성해줘.
 `;
 
-        const baseUrl = process.env.LOCAL_PC_AI_URL || 'http://localhost:11434';
+        const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
         const url = `${baseUrl}/api/chat`;
         
         const response = await axios.post(url, {

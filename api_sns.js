@@ -942,7 +942,7 @@ async function checkExaoneAvailable() {
         return exaoneAvailable;
     }
 
-    const baseUrl = process.env.LOCAL_PC_AI_URL || 'http://localhost:11434';
+    const baseUrl = process.env.LOCAL_AI_URL || 'http://localhost:11434';
     const url = `${baseUrl}/api/chat`;
     
     try {
