@@ -2008,3 +2008,150 @@ exports.postRandomNewsAutomatic = async function() {
         logger.error(`[SNS AutoPost] Critical Error: ${error.message}`);
     }
 };
+
+/**
+ * 매일 밤 12시 날씨 포스팅 (다음날 서울의 날씨 및 기온)
+ * - Open-Meteo API에서 다음날 날씨 데이터 가져오기
+ * - Gemini 또는 GPT 중 랜덤 선택으로 감성적인 날씨 포스트 생성
+ * - SNS에 포스팅
+ */
+exports.postWeatherDaily = async function() {
+    try {
+        logger.info('[SNS Weather] Starting daily weather posting...');
+
+        // 1. Open-Meteo API에서 서울 날씨 데이터 가져오기
+        // 서울 좌표: 위도 37.5665, 경도 126.9780
+        const weatherUrl = 'https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max&temperature_unit=celsius&timezone=Asia/Seoul';
+        
+        let weatherData = {
+            max_temp: 0,
+            min_temp: 0,
+            precipitation: 0,
+            wind_speed: 0,
+            weather_description: '맑음'
+        };
+
+        try {
+            const response = await axios.get(weatherUrl);
+            const today = 1; // 오늘 인덱스 + 1 = 내일 인덱스
+            
+            if (response.data.daily && response.data.daily.time && response.data.daily.time.length > today) {
+                const dailyData = response.data.daily;
+                weatherData.max_temp = Math.round(dailyData.temperature_2m_max[today]);
+                weatherData.min_temp = Math.round(dailyData.temperature_2m_min[today]);
+                weatherData.precipitation = dailyData.precipitation_sum[today] || 0;
+                weatherData.wind_speed = Math.round(dailyData.wind_speed_10m_max[today] || 0);
+                
+                // Weather code를 한글 설명으로 변환
+                const weatherCode = dailyData.weather_code[today];
+                weatherData.weather_description = getWeatherDescription(weatherCode);
+                
+                logger.info(`[SNS Weather] Fetched data - Max: ${weatherData.max_temp}°C, Min: ${weatherData.min_temp}°C, Condition: ${weatherData.weather_description}`);
+            }
+        } catch (apiError) {
+            logger.warn(`[SNS Weather] API Error: ${apiError.message}, using fallback`);
+            // API 오류 시 기본값 사용
+        }
+
+        // 2. Gemini 또는 GPT 중 랜덤 선택
+        const useGemini = Math.random() < 0.5;
+        const selectedAuthor = useGemini ? AUTHOR_KEYS.GEMINI : AUTHOR_KEYS.GPT;
+
+        logger.info(`[SNS Weather] Selected AI: ${selectedAuthor}`);
+
+        // 3. AI로 날씨 포스트 생성
+        const tomorrow = moment().add(1, 'day').format('MM월 DD일');
+        const weatherPrompt = `
+다음 서울의 내일 날씨 정보를 읽고, SNS에 올릴 감성적이고 실용적인 날씨 게시글을 작성해주세요.
+
+[내일 날짜]: ${tomorrow}
+[최고 기온]: ${weatherData.max_temp}°C
+[최저 기온]: ${weatherData.min_temp}°C
+[날씨]: ${weatherData.weather_description}
+[강수량]: ${weatherData.precipitation}mm
+[최대 풍속]: ${weatherData.wind_speed}km/h
+
+요구사항:
+1. 길이: 150자 이내
+2. 한국어로 감성적이고 자연스럽게
+3. 날씨에 맞는 생활 조언 포함 (예: 우산 챙기기, 가벼운 옷 입기 등)
+4. 이모지 사용 금지
+5. 특수문자는 최소화
+
+게시글만 작성해주세요.
+        `.trim();
+
+        let content = "";
+        try {
+            if (useGemini) {
+                content = await callGemini(weatherPrompt);
+            } else {
+                content = await callOpenAI(weatherPrompt);
+            }
+        } catch (aiError) {
+            logger.error(`[SNS Weather] LLM Error (${selectedAuthor}): ${aiError.message}`);
+            // Fallback: 기본 날씨 포스트
+            content = `내일(${tomorrow})은 ${weatherData.weather_description}일 예정입니다.\n최고 ${weatherData.max_temp}°C, 최저 ${weatherData.min_temp}°C`;
+        }
+
+        // 4. SNS에 포스팅
+        const newPost = {
+            author: selectedAuthor,
+            content: content,
+            likes: 0,
+            commentCount: 0,
+            weatherData: {
+                date: tomorrow,
+                maxTemp: weatherData.max_temp,
+                minTemp: weatherData.min_temp,
+                condition: weatherData.weather_description,
+                precipitation: weatherData.precipitation,
+                windSpeed: weatherData.wind_speed
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        const docRef = await db.collection(COL_POSTS).add(newPost);
+        
+        logger.info(`[SNS Weather] Successfully posted by ${selectedAuthor}: ${docRef.id}`);
+        logger.info(`[SNS Weather] Content: ${content.substring(0, 100)}...`);
+
+    } catch (error) {
+        logger.error(`[SNS Weather] Critical Error: ${error.message}`);
+    }
+};
+
+/**
+ * WMO Weather Code를 한글 설명으로 변환
+ * @param {number} code - WMO Weather Code
+ * @returns {string} - 한글 날씨 설명
+ */
+function getWeatherDescription(code) {
+    const weatherMap = {
+        0: '맑음',
+        1: '맑음',
+        2: '부분 흐림',
+        3: '흐림',
+        45: '안개',
+        48: '박힌 서리',
+        51: '가는 빗줄기',
+        53: '약한 빗줄기',
+        55: '강한 빗줄기',
+        61: '약한 비',
+        63: '비',
+        65: '강한 비',
+        71: '약한 눈',
+        73: '눈',
+        75: '강한 눈',
+        77: '눈알갱이',
+        80: '약한 소나기',
+        81: '소나기',
+        82: '강한 소나기',
+        85: '약한 눈소나기',
+        86: '눈소나기',
+        95: '뇌우',
+        96: '약한 강우 뇌우',
+        99: '강한 강우 뇌우'
+    };
+    return weatherMap[code] || '날씨';
+}

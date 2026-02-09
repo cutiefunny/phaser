@@ -167,6 +167,10 @@ cron.schedule('0 * * * *', async () => {
     console.log('한투 토큰 갱신');
     await generateToken();
 
+    // 매일 밤 12시 서울 날씨 포스팅
+    console.log('서울 날씨 자동 포스팅');
+    if (apiSns) await apiSns.postWeatherDaily();
+
     // console.log('오늘의 운세 생성');
     // if (apiMisc) await apiMisc.getDailyFortune(null, null);
 
