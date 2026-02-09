@@ -148,7 +148,7 @@ exports.getNews = async function(req, res) {
 
                         요구사항:
                         1. 특수문자 금지.
-                        2. 정치 기사면 "SKIP_POLITICS".
+                        2. 지역행정, 정책 홍보, 정치 기사면 "SKIP_POLITICS".
                         3. 알림 또는 광고성 기사면 "SKIP_POLITICS".
                         4. 한국어로 간결하게 작성.
                     `;

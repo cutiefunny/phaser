@@ -198,6 +198,10 @@ cron.schedule('0 * * * *', async () => {
   console.log('AI 자동 댓글 작성 시도');
   if (apiSns) await apiSns.autoAddComment(null, null);
   
+  // 뉴스 DB에서 랜덤 기사 자동 포스팅 (매 시간)
+  console.log('뉴스 자동 포스팅');
+  if (apiSns) await apiSns.postRandomNewsAutomatic();
+  
   // 24시간 지난 게시글 자동 삭제 (매 시간)
   console.log('오래된 게시글 삭제 시도');
   if (apiSns) await apiSns.autoDeleteOldPosts(null, null);

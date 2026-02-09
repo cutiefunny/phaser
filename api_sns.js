@@ -1913,3 +1913,98 @@ exports.initTrendCache = async function() {
         logger.error(`[SNS] Error initializing trend cache: ${error.message}`);
     }
 };
+
+/**
+ * 자동 뉴스 포스팅 (1시간마다 실행)
+ * - eink-news DB에서 랜덤 기사 선택
+ * - Gemini 또는 GPT 중 랜덤 선택
+ * - 선택된 AI로 기사에 대한 감성적인 댓글 생성
+ * - SNS에 포스팅
+ */
+exports.postRandomNewsAutomatic = async function() {
+    try {
+        logger.info('[SNS AutoPost] Starting automatic news posting...');
+
+        // 1. eink-news DB에서 랜덤 기사 선택
+        const einkNewsSnapshot = await db.collection('eink-news').get();
+        
+        if (einkNewsSnapshot.empty) {
+            logger.warn('[SNS AutoPost] No news available in eink-news collection');
+            return;
+        }
+
+        const allNews = einkNewsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        // 랜덤한 기사 선택
+        const randomIndex = Math.floor(Math.random() * allNews.length);
+        const selectedNews = allNews[randomIndex];
+
+        logger.info(`[SNS AutoPost] Selected news: ${selectedNews.title}`);
+
+        // 2. Gemini 또는 GPT 중 랜덤 선택 (50:50 확률)
+        const useGemini = Math.random() < 0.5;
+        const selectedAuthor = useGemini ? AUTHOR_KEYS.GEMINI : AUTHOR_KEYS.GPT;
+
+        logger.info(`[SNS AutoPost] Selected AI: ${selectedAuthor}`);
+
+        // 3. 선택된 AI로 댓글 생성
+        const prompt = `
+다음 뉴스 기사를 읽고, SNS 피드에 올릴 짧고 감성적인 댓글을 작성해주세요.
+
+[기사 제목]: ${selectedNews.title}
+[기사 요약]: ${selectedNews.summary}
+[기사 링크]: ${selectedNews.originalLink}
+
+요구사항:
+1. 길이: 100자 이내
+2. 한국어로 자연스럽게 작성
+3. 기사 내용에 공감하는 톤으로
+4. 링크는 포함하지 않음 (링크는 별도로 추가됨)
+5. 특수문자는 최소화
+
+댓글만 작성해주세요.
+        `.trim();
+
+        let content = "";
+        try {
+            if (useGemini) {
+                content = await callGemini(prompt);
+            } else {
+                content = await callOpenAI(prompt);
+            }
+        } catch (aiError) {
+            logger.error(`[SNS AutoPost] LLM Error (${selectedAuthor}): ${aiError.message}`);
+            // Fallback: 기본 댓글
+            content = `"${selectedNews.title}" 이 기사를 읽으니 생각이 많아지네요.`;
+        }
+
+        // 4. 기사 링크와 함께 SNS에 포스팅
+        const finalContent = `${content}
+
+🔗 ${selectedNews.originalLink}`;
+
+        const newPost = {
+            author: selectedAuthor,
+            content: finalContent,
+            likes: 0,
+            commentCount: 0,
+            newsReference: {
+                newsId: selectedNews.id,
+                newsTitle: selectedNews.title,
+                newsLink: selectedNews.originalLink
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        const docRef = await db.collection(COL_POSTS).add(newPost);
+        
+        logger.info(`[SNS AutoPost] Successfully posted by ${selectedAuthor}: ${docRef.id}`);
+        logger.info(`[SNS AutoPost] Content: ${finalContent.substring(0, 100)}...`);
+
+    } catch (error) {
+        logger.error(`[SNS AutoPost] Critical Error: ${error.message}`);
+    }
+};

@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Sensitive files
+serviceAccountKey.json
+firebaseConfig.js
+
+# Cache and logs
+audio_cache/
+logs/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
