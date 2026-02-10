@@ -1916,10 +1916,6 @@ exports.initTrendCache = async function() {
 
 /**
  * 자동 뉴스 포스팅 (1시간마다 실행)
- * - eink-news DB에서 랜덤 기사 선택
- * - Gemini 또는 GPT 중 랜덤 선택
- * - 선택된 AI로 기사에 대한 감성적인 댓글 생성
- * - SNS에 포스팅
  */
 exports.postRandomNewsAutomatic = async function() {
     try {
@@ -1938,9 +1934,61 @@ exports.postRandomNewsAutomatic = async function() {
             ...doc.data()
         }));
 
-        // 랜덤한 기사 선택
-        const randomIndex = Math.floor(Math.random() * allNews.length);
-        const selectedNews = allNews[randomIndex];
+        // 1-1. 기존 스레드(이미 포스팅된 뉴스) 중복 검사
+        const existingPostsSnapshot = await db.collection(COL_POSTS)
+            .orderBy('createdAt', 'desc')
+            .limit(200)
+            .get();
+
+        const postedNewsIds = new Set();
+        const postedNewsLinks = new Set();
+        const postedNewsTitles = new Set();
+
+        if (!existingPostsSnapshot.empty) {
+            existingPostsSnapshot.docs.forEach(doc => {
+                const data = doc.data();
+                if (data.newsReference) {
+                    if (data.newsReference.newsId) postedNewsIds.add(data.newsReference.newsId);
+                    if (data.newsReference.newsLink) postedNewsLinks.add(data.newsReference.newsLink);
+                    if (data.newsReference.newsTitle) postedNewsTitles.add(data.newsReference.newsTitle);
+                }
+            });
+        }
+
+        const uniqueNews = allNews.filter(news => {
+            if (postedNewsIds.has(news.id)) return false;
+            if (news.originalLink && postedNewsLinks.has(news.originalLink)) return false;
+            if (news.title && postedNewsTitles.has(news.title)) return false;
+            return true;
+        });
+
+        if (uniqueNews.length === 0) {
+            logger.warn('[SNS AutoPost] No unique news available after duplicate check');
+            return;
+        }
+
+        // 1-2. 사건/사고 기사 우선 선별
+        const incidentKeywords = [
+            '사건', '사고', '화재', '폭발', '추락', '붕괴', '충돌', '추돌', '교통사고',
+            '범죄', '폭행', '살인', '강도', '구속', '기소', '재판', '징역',
+            '체포', '검거', '경찰', '검찰', '사망', '부상', '실종'
+        ];
+
+        const isIncidentArticle = (news) => {
+            const title = (news.title || '').toLowerCase();
+            const summary = (news.summary || '').toLowerCase();
+            return incidentKeywords.some(keyword =>
+                title.includes(keyword) || summary.includes(keyword)
+            );
+        };
+
+        const incidentCandidates = uniqueNews.filter(isIncidentArticle);
+        const nonIncidentCandidates = uniqueNews.filter(n => !isIncidentArticle(n));
+
+        // 랜덤한 기사 선택 (사건/사고 우선)
+        const candidates = incidentCandidates.length > 0 ? incidentCandidates : nonIncidentCandidates;
+        const randomIndex = Math.floor(Math.random() * candidates.length);
+        const selectedNews = candidates[randomIndex];
 
         logger.info(`[SNS AutoPost] Selected news: ${selectedNews.title}`);
 
@@ -1999,6 +2047,70 @@ exports.postRandomNewsAutomatic = async function() {
         
         logger.info(`[SNS AutoPost] Successfully posted by ${selectedAuthor}: ${docRef.id}`);
         logger.info(`[SNS AutoPost] Content: ${content.substring(0, 100)}...`);
+
+        // 4. 포스팅 후 댓글 추가 (500ms 대기 후)
+        await new Promise(r => setTimeout(r, 500));
+        
+        try {
+            // 댓글 작성자 결정: 포스팅 작성자와 반대
+            const commenterAuthor = selectedAuthor === AUTHOR_KEYS.GEMINI ? AUTHOR_KEYS.GPT : AUTHOR_KEYS.GEMINI;
+            
+            // 댓글 생성 프롬프트
+            const commentPrompt = `
+다음 SNS 게시글을 읽고 자연스러운 댓글을 작성해주세요.
+
+[게시글 내용]:
+${content}
+
+요구사항:
+1. 게시글에 대한 의견
+2. 100자 이내로 간결하게 작성
+3. 자연스러운 한국어
+4. 이모지, 해시태그, 특수문자 금지
+5. 댓글만 작성 (다른 텍스트 없이)
+
+댓글만 작성해주세요.
+            `.trim();
+
+            let commentContent = "";
+            try {
+                if (commenterAuthor === AUTHOR_KEYS.GEMINI) {
+                    commentContent = await callGemini(commentPrompt);
+                } else {
+                    commentContent = await callOpenAI(commentPrompt);
+                }
+                
+                if (commentContent && commentContent.trim().length > 0) {
+                    commentContent = commentContent.trim();
+                    
+                    // 댓글 저장
+                    await db.runTransaction(async (t) => {
+                        const postRef = db.collection(COL_POSTS).doc(docRef.id);
+                        const commentRef = db.collection(COL_COMMENTS).doc();
+                        
+                        // 댓글 생성
+                        t.set(commentRef, {
+                            postId: docRef.id,
+                            author: commenterAuthor,
+                            content: commentContent,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        // 게시글 댓글 수 증가
+                        t.update(postRef, {
+                            commentCount: admin.firestore.FieldValue.increment(1)
+                        });
+                    });
+                    
+                    logger.info(`[SNS AutoPost] Comment added by ${commenterAuthor}: ${docRef.id}`);
+                    logger.info(`[SNS AutoPost] Comment: ${commentContent.substring(0, 50)}...`);
+                }
+            } catch (commentError) {
+                logger.warn(`[SNS AutoPost] Failed to add comment: ${commentError.message}`);
+            }
+        } catch (commentError) {
+            logger.warn(`[SNS AutoPost] Comment processing error: ${commentError.message}`);
+        }
 
     } catch (error) {
         logger.error(`[SNS AutoPost] Critical Error: ${error.message}`);
