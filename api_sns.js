@@ -1950,22 +1950,23 @@ exports.postRandomNewsAutomatic = async function() {
 
         logger.info(`[SNS AutoPost] Selected AI: ${selectedAuthor}`);
 
-        // 3. 선택된 AI로 댓글 생성
+        // 3. 선택된 AI로 SNS 포스팅 콘텐츠 생성
         const prompt = `
-다음 뉴스 기사를 읽고, SNS 피드에 올릴 짧고 감성적인 댓글을 작성해주세요.
+다음 뉴스 기사의 요약을 읽고, SNS 피드에 올릴 매력적인 포스팅을 작성해주세요.
 
 [기사 제목]: ${selectedNews.title}
 [기사 요약]: ${selectedNews.summary}
-[기사 링크]: ${selectedNews.originalLink}
 
 요구사항:
-1. 길이: 100자 이내
-2. 한국어로 자연스럽게 작성
-3. 기사 내용에 공감하는 톤으로
-4. 링크는 포함하지 않음 (링크는 별도로 추가됨)
-5. 특수문자는 최소화
+1. 길이: 150자 이내
+2. 한국어로 자연스럽고 친근하게 작성
+3. SNS 감성에 어울리는 톤
+4. 기사의 핵심 내용이 전달되도록 작성
+5. 링크나 URL은 절대 포함하지 말 것
+6. 적절한 이모지 사용 가능 (선택사항)
+7. 해시태그는 포함하지 말 것
 
-댓글만 작성해주세요.
+포스팅 내용만 작성해주세요.
         `.trim();
 
         let content = "";
@@ -1977,18 +1978,13 @@ exports.postRandomNewsAutomatic = async function() {
             }
         } catch (aiError) {
             logger.error(`[SNS AutoPost] LLM Error (${selectedAuthor}): ${aiError.message}`);
-            // Fallback: 기본 댓글
-            content = `"${selectedNews.title}" 이 기사를 읽으니 생각이 많아지네요.`;
+            // Fallback: 기본 포스팅
+            content = `"${selectedNews.title}"\n\n${selectedNews.summary}`;
         }
-
-        // 4. 기사 링크와 함께 SNS에 포스팅
-        const finalContent = `${content}
-
-🔗 ${selectedNews.originalLink}`;
 
         const newPost = {
             author: selectedAuthor,
-            content: finalContent,
+            content: content,
             likes: 0,
             commentCount: 0,
             newsReference: {
@@ -2002,7 +1998,7 @@ exports.postRandomNewsAutomatic = async function() {
         const docRef = await db.collection(COL_POSTS).add(newPost);
         
         logger.info(`[SNS AutoPost] Successfully posted by ${selectedAuthor}: ${docRef.id}`);
-        logger.info(`[SNS AutoPost] Content: ${finalContent.substring(0, 100)}...`);
+        logger.info(`[SNS AutoPost] Content: ${content.substring(0, 100)}...`);
 
     } catch (error) {
         logger.error(`[SNS AutoPost] Critical Error: ${error.message}`);

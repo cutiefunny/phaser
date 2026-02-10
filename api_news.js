@@ -44,6 +44,59 @@ function checkKeywordOverlap(str1, str2, length = 3) {
     return false;
 }
 
+/**
+ * 고도화된 정치/부적절 콘텐츠 필터링 함수
+ * @param {string} title 기사 제목
+ * @param {string} content 기사 본문
+ * @returns {Promise<boolean>} true면 스킵, false면 통과
+ */
+async function shouldSkipArticle(title, content) {
+    const combinedText = (title + " " + content).toLowerCase();
+
+    // 1. 하드 키워드 필터링 (LLM 호출 전 비용/시간 절약)
+    const criticalKeywords = [
+        '대통령', '정당', '국민의힘', '더불어민주당', '의원', '공천', '총선', '대선', 
+        '개혁신당', '조국혁신당', '정치권', '지방선거', '국회', '상임위', '본회의'
+    ];
+    
+    // 제목에 명확한 정치 키워드가 있으면 즉시 스킵
+    if (criticalKeywords.some(k => title.includes(k))) {
+        return true;
+    }
+
+    // 2. LLM을 통한 정밀 맥락 분석
+    const filterPrompt = `
+        당신은 뉴스 편집 전문가입니다. 다음 기사가 '정치', '정책 홍보', '광고' 카테고리에 해당하시는지 판단하세요.
+        
+        [판단 기준]
+        - 정치: 정당, 국회, 대통령, 선거, 정치인 행보 관련 기사.
+        - 정책 홍보: 특정 지자체나 정부 부처의 단순 성과 자랑이나 홍보성 기사.
+        - 광고/알림: 쿠폰, 이벤트, 단순 행사 알림, 체험단 모집.
+        - 사회/일반: 정치적 편향성 없는 일반적인 사회 현상, 사고, 생활 정보 (이 경우는 PASS).
+
+        기사 제목: ${title}
+        기사 본문 요약: ${content.substring(0, 800)}
+
+        위 기준 중 하나라도 해당하면 "SKIP"이라고 답하고, 일반적인 정보성 기사라면 "PASS"라고 답하세요.
+        오직 한 단어(SKIP 또는 PASS)로만 대답하세요.
+    `;
+
+    try {
+        let result = "";
+        try {
+            result = await callGemini(filterPrompt);
+        } catch {
+            result = await callOpenAI(filterPrompt);
+        }
+
+        return result.trim().toUpperCase().includes("SKIP");
+    } catch (err) {
+        logger.error(`[shouldSkipArticle] Error: ${err.message}`);
+        // 에러 발생 시 안전하게 스킵하거나, 정책에 따라 통과 (여기선 통과)
+        return false; 
+    }
+}
+
 // ==========================================
 // API Exports
 // ==========================================
@@ -54,7 +107,6 @@ exports.getNews = async function(req, res) {
     
     const SOURCES = [
         { type: 'naver', category: 'society', sid: '102', name: '네이버사회' },
-        // 필요시 소스 추가 (rss 등)
     ];
 
     logger.info(`[getNews] Starting news collection from ${SOURCES.length} sources...`);
@@ -92,13 +144,6 @@ exports.getNews = async function(req, res) {
                         const title = linkTag.text().trim() || $(elem).find('dl dt:not(.photo) a').text().trim();
                         if (href && title) itemsToProcess.push({ title, link: href, isoDate: new Date().toISOString() });
                     });
-                } else if (source.type === 'rss') {
-                    const feed = await parser.parseURL(source.url);
-                    itemsToProcess = feed.items.slice(0, 5).map(item => ({
-                        title: item.title,
-                        link: item.link,
-                        isoDate: item.isoDate || new Date().toISOString()
-                    }));
                 }
 
                 for (const item of itemsToProcess) {
@@ -129,46 +174,33 @@ exports.getNews = async function(req, res) {
                     
                     if (!article || !article.textContent) continue;
 
-                    // [LLM 요약 요청]
-                    let systemInstruction = "";
-                    if (source.category === 'society' || source.category === 'hot') {
-                        systemInstruction = `
-                            [Critical Constraint]:
-                            If this article is primarily about Politics (parties, elections, president, parliament), 
-                            output ONLY "SKIP_POLITICS".
-                        `;
+                    // [고도화된 정치 필터링 적용]
+                    const isPolitical = await shouldSkipArticle(article.title, article.textContent);
+                    if (isPolitical) {
+                        logger.info(`[getNews] Filtered Political/Ad Article: ${article.title}`);
+                        continue;
                     }
 
+                    // [LLM 요약 요청]
                     const contentSnippet = article.textContent.substring(0, 3000);
                     const summaryPrompt = `
-                        다음 뉴스 기사를 E-ink용으로 '500자 이내로 요약' 해주세요.
-                        ${systemInstruction}
+                        다음 뉴스 기사를 E-ink 단말기용으로 500자 이내로 요약해주세요.
                         [제목]: ${article.title}
                         [본문]: ${contentSnippet}
 
                         요구사항:
-                        1. 특수문자 금지.
-                        2. 지역행정, 정책 홍보, 정치 기사면 "SKIP_POLITICS".
-                        3. 알림 또는 광고성 기사면 "SKIP_POLITICS".
-                        4. 한국어로 간결하게 작성.
+                        1. 특수문자 사용을 자제하고 평어체로 작성.
+                        2. 핵심 사실 위주로 3문장 이내로 요약.
+                        3. 한국어로 간결하게 작성.
                     `;
 
                     let summaryText = "";
                     try {
                         summaryText = await callGemini(summaryPrompt);
                     } catch (geminiError) {
-                        try {
-                            summaryText = await callOpenAI(summaryPrompt);
-                        } catch (openAiError) {
-                            throw new Error(`OpenAI Execution Failed: ${openAiError.message}`);
-                        }
+                        summaryText = await callOpenAI(summaryPrompt);
                     }
                     summaryText = summaryText.trim();
-
-                    if (summaryText.includes("SKIP_POLITICS")) {
-                        logger.info(`[getNews] Filtered Political Article: ${article.title}`);
-                        continue;
-                    }
 
                     // [DB 저장]
                     await db.collection(COLLECTION_NAME).add({
