@@ -160,65 +160,56 @@ app.listen(port, '0.0.0.0', () => {
 // ==================================================================
 // [수정] 크론잡 설정 (분산된 모듈 함수 호출)
 // ==================================================================
-// ==================================================================
-// [수정] 크론잡 설정 (분산된 모듈 함수 호출)
-// ==================================================================
-const shouldRunCron = process.env.NODE_ENV === 'production';
+cron.schedule('0 * * * *', async () => {
+  const currentHour = new Date().getHours();
 
-if (shouldRunCron) {
-  cron.schedule('0 * * * *', async () => {
-    const currentHour = new Date().getHours();
+  if (currentHour === 0) {
+    console.log('한투 토큰 갱신');
+    await generateToken();
 
-    if (currentHour === 0) {
-      console.log('한투 토큰 갱신');
-      await generateToken();
+    // 매일 밤 12시 서울 날씨 포스팅
+    console.log('서울 날씨 자동 포스팅');
+    if (apiSns) await apiSns.postWeatherDaily();
 
-      // 매일 밤 12시 서울 날씨 포스팅
-      console.log('서울 날씨 자동 포스팅');
-      if (apiSns) await apiSns.postWeatherDaily();
+    // console.log('오늘의 운세 생성');
+    // if (apiMisc) await apiMisc.getDailyFortune(null, null);
 
-      // console.log('오늘의 운세 생성');
-      // if (apiMisc) await apiMisc.getDailyFortune(null, null);
-
-    } else if (currentHour === 7) {
-      console.log('Concept2 스냅샷 저장 API 호출');
-      try {
-        await axios.get('https://khanfit.vercel.app/api/snapshot');
-        console.log('Concept2 스냅샷 저장 성공');
-      } catch (error) {
-        console.error('Concept2 스냅샷 저장 실패:', error.message);
-      }
-
-    } else if (currentHour === 8) {
-      console.log('오늘의 운세톡 발송');
-      // API.sendFortune -> apiMisc.sendFortune
-      if (apiMisc) await apiMisc.sendFortune(null, null);
+  } else if (currentHour === 7) {
+    console.log('Concept2 스냅샷 저장 API 호출');
+    try {
+      await axios.get('https://khanfit.vercel.app/api/snapshot');
+      console.log('Concept2 스냅샷 저장 성공');
+    } catch (error) {
+      console.error('Concept2 스냅샷 저장 실패:', error.message);
     }
 
-    // 매 시간 뉴스 업데이트
-    console.log('뉴스 업데이트');
-    // API.getNews -> apiNews.getNews
-    if (apiNews) await apiNews.getNews(null, null);
-    
-    // AI 자동 게시글 작성 (매 시간)
-    console.log('AI 자동 게시글 작성 시도');
-    if (apiSns) await apiSns.autoCreatePost(null, null);
-    
-    // AI 자동 댓글 작성 (매 시간)
-    console.log('AI 자동 댓글 작성 시도');
-    if (apiSns) await apiSns.autoAddComment(null, null);
-    
-    // 뉴스 DB에서 랜덤 기사 자동 포스팅 (매 시간)
-    console.log('뉴스 자동 포스팅');
-    if (apiSns) await apiSns.postRandomNewsAutomatic();
-    
-    // 24시간 지난 게시글 자동 삭제 (매 시간)
-    console.log('오래된 게시글 삭제 시도');
-    if (apiSns) await apiSns.autoDeleteOldPosts(null, null);
-  });
-} else {
-  console.log('=== [INFO] 로컬 환경 감지: 크론잡 비활성화 ===');
-}
+  } else if (currentHour === 8) {
+    console.log('오늘의 운세톡 발송');
+    // API.sendFortune -> apiMisc.sendFortune
+    if (apiMisc) await apiMisc.sendFortune(null, null);
+  }
+
+  // 매 시간 뉴스 업데이트
+  console.log('뉴스 업데이트');
+  // API.getNews -> apiNews.getNews
+  if (apiNews) await apiNews.getNews(null, null);
+  
+  // AI 자동 게시글 작성 (매 시간)
+  console.log('AI 자동 게시글 작성 시도');
+  if (apiSns) await apiSns.autoCreatePost(null, null);
+  
+  // AI 자동 댓글 작성 (매 시간)
+  console.log('AI 자동 댓글 작성 시도');
+  if (apiSns) await apiSns.autoAddComment(null, null);
+  
+  // 뉴스 DB에서 랜덤 기사 자동 포스팅 (매 시간)
+  console.log('뉴스 자동 포스팅');
+  if (apiSns) await apiSns.postRandomNewsAutomatic();
+  
+  // 24시간 지난 게시글 자동 삭제 (매 시간)
+  console.log('오래된 게시글 삭제 시도');
+  if (apiSns) await apiSns.autoDeleteOldPosts(null, null);
+});
 
 async function generateToken() {
   try {
