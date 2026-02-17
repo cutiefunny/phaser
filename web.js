@@ -156,24 +156,24 @@ console.log(`=== [DEBUG 10] 서버 리스닝 시도 (Port: ${port}) ===`);
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`=== [SUCCESS] 서버가 정상적으로 실행되었습니다! Port: ${port} ===`);
-  if(isLocal) { // 나무위키 스케줄은 로컬에서만 실행
-    // 트렌드 캐시 초기화 (서버 시작 시)
-    if (apiSns && apiSns.initTrendCache) {
-      console.log('[SNS] 트렌드 캐시 초기화 시작...');
-      apiSns.initTrendCache().then(() => {
-        console.log('[SNS] 트렌드 캐시 초기화 완료');
-      }).catch(err => {
-        console.error('[SNS] 트렌드 캐시 초기화 실패:', err.message);
-      });
-    }
+  // if(isLocal) { // 나무위키 스케줄은 로컬에서만 실행
+  //   // 트렌드 캐시 초기화 (서버 시작 시)
+  //   if (apiSns && apiSns.initTrendCache) {
+  //     console.log('[SNS] 트렌드 캐시 초기화 시작...');
+  //     apiSns.initTrendCache().then(() => {
+  //       console.log('[SNS] 트렌드 캐시 초기화 완료');
+  //     }).catch(err => {
+  //       console.error('[SNS] 트렌드 캐시 초기화 실패:', err.message);
+  //     });
+  //   }
 
-    // 나무위키 트렌드 자동 갱신 시작 (1시간마다)
-    if (apiOpenClaw && apiOpenClaw.startNamuwikiSchedule) {
-      apiOpenClaw.startNamuwikiSchedule().catch(err => {
-        console.error('[OpenClaw] 나무위키 스케줄 시작 실패:', err.message);
-      });
-    }
-  }
+  //   // 나무위키 트렌드 자동 갱신 시작 (1시간마다)
+  //   if (apiOpenClaw && apiOpenClaw.startNamuwikiSchedule) {
+  //     apiOpenClaw.startNamuwikiSchedule().catch(err => {
+  //       console.error('[OpenClaw] 나무위키 스케줄 시작 실패:', err.message);
+  //     });
+  //   }
+  // }
 });
 
 // ==================================================================
