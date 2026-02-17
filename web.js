@@ -180,7 +180,6 @@ app.listen(port, '0.0.0.0', () => {
 // [수정] 크론잡 설정 (분산된 모듈 함수 호출)
 // 로컬 환경에서는 크론잡 비활성화 (나무위키 스케줄 제외)
 // ==================================================================
-if (!isLocal) {
   cron.schedule('0 * * * *', async () => {
     const currentHour = new Date().getHours();
 
@@ -231,10 +230,6 @@ if (!isLocal) {
     console.log('오래된 게시글 삭제 시도');
     if (apiSns) await apiSns.autoDeleteOldPosts(null, null);
   });
-  console.log('[DEBUG 11-1] 크론잡 활성화 (운영 환경)');
-} else {
-  console.log('[DEBUG 11-2] ⚠️  크론잡 비활성화 (로컬 환경) - 나무위키 스케줄만 실행');
-}
 
 async function generateToken() {
   try {
