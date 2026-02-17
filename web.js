@@ -23,6 +23,7 @@ const apiAgent = require('./api_agent'); // 챗봇, 검색, LangGraph
 const apiNews = require('./api_news');   // 뉴스 수집 및 조회
 const apiMisc = require('./api_misc');   // 운세, 상품관리, 알림톡, 기타
 const apiSns = require('./api_sns');   // SNS 게시글 및 댓글 관리
+const apiOpenClaw = require('./api_openclaw'); // OpenClaw 스타일 웹 크롤링
 
 console.log('=== [DEBUG 7] 외부 라이브러리(cron, axios, redis, cors) 로딩 ===');
 const cron = require('node-cron');
@@ -141,6 +142,10 @@ app.post('/saveProduct', apiMisc.saveProduct);
 app.post('/updateProduct', apiMisc.updateProduct);
 app.post('/deleteProduct', apiMisc.deleteProduct);
 
+// OpenClaw 스타일 웹 크롤링 API -> api_openclaw.js
+app.post('/openclaw/youtube', apiOpenClaw.getYoutubeTitles);
+app.post('/openclaw/namu', apiOpenClaw.getNamuwikiTrend);
+
 console.log(`=== [DEBUG 10] 서버 리스닝 시도 (Port: ${port}) ===`);
 
 app.listen(port, '0.0.0.0', () => {
@@ -175,18 +180,18 @@ cron.schedule('0 * * * *', async () => {
     // if (apiMisc) await apiMisc.getDailyFortune(null, null);
 
   } else if (currentHour === 7) {
-    console.log('Concept2 스냅샷 저장 API 호출');
-    try {
-      await axios.get('https://khanfit.vercel.app/api/snapshot');
-      console.log('Concept2 스냅샷 저장 성공');
-    } catch (error) {
-      console.error('Concept2 스냅샷 저장 실패:', error.message);
-    }
+    // console.log('Concept2 스냅샷 저장 API 호출');
+    // try {
+    //   await axios.get('https://khanfit.vercel.app/api/snapshot');
+    //   console.log('Concept2 스냅샷 저장 성공');
+    // } catch (error) {
+    //   console.error('Concept2 스냅샷 저장 실패:', error.message);
+    // }
 
   } else if (currentHour === 8) {
-    console.log('오늘의 운세톡 발송');
-    // API.sendFortune -> apiMisc.sendFortune
-    if (apiMisc) await apiMisc.sendFortune(null, null);
+    // console.log('오늘의 운세톡 발송');
+    // // API.sendFortune -> apiMisc.sendFortune
+    // if (apiMisc) await apiMisc.sendFortune(null, null);
   }
 
   // 매 시간 뉴스 업데이트
