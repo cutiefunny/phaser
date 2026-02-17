@@ -3,6 +3,8 @@ const { chromium } = require('playwright');
 const OpenAI = require('openai');
 const path = require('path');
 const fs = require('fs');
+const cron = require('node-cron');
+const { db } = require('./firebaseConfig');
 require('dotenv').config();
 
 const openai = new OpenAI({
@@ -12,6 +14,9 @@ const openai = new OpenAI({
 // 사용자 데이터(로그인 쿠키 등)를 저장할 폴더 경로
 // 프로젝트 루트에 'user_data' 폴더가 자동으로 생성됩니다.
 const USER_DATA_DIR = path.join(__dirname, 'user_data');
+
+// 나무위키 트렌드 자동 갱신 스케줄 저장
+let namuwikiScheduleJob = null;
 
 module.exports = {
     // 1. 유튜브 제목 가져오기 (OpenClaw 스타일)
@@ -178,7 +183,7 @@ module.exports = {
         }
     },
 
-    // [신규] 나무위키 실시간 검색어 가져오기
+    // [신규] 나무위키 실시간 검색어 가져오기 및 Firestore 저장
     getNamuwikiTrend: async (req, res) => {
         let browserContext = null;
 
@@ -237,10 +242,24 @@ module.exports = {
             const result = JSON.parse(completion.choices[0].message.content);
             console.log('[OpenClaw] 분석 결과:', result);
 
+            // 6. Firestore에 저장
+            const rankings = result.rankings || [];
+            const timestamp = new Date();
+            
+            await db.collection('wikiTrend').doc('current').set({
+                rankings: rankings,
+                updatedAt: timestamp,
+                source: 'namuwiki'
+            });
+            
+            console.log('[OpenClaw] Firestore 저장 완료:', rankings.length, '개 항목');
+
             res.json({
                 success: true,
                 source: "namuwiki",
-                data: result.rankings || []
+                data: rankings,
+                saved: true,
+                timestamp: timestamp
             });
 
         } catch (error) {
@@ -248,6 +267,95 @@ module.exports = {
             res.status(500).json({ success: false, error: error.message });
         } finally {
             if (browserContext) await browserContext.close();
+        }
+    },
+
+    // 나무위키 트렌드 자동 갱신 시작 (1시간마다)
+    startNamuwikiSchedule: async () => {
+        console.log('[OpenClaw] 나무위키 트렌드 자동 갱신 스케줄 시작...');
+
+        // 기존 스케줄 제거 (중복 방지)
+        if (namuwikiScheduleJob) {
+            namuwikiScheduleJob.stop();
+        }
+
+        // 1시간마다 실행 (매 정시: 0분)
+        namuwikiScheduleJob = cron.schedule('0 * * * *', async () => {
+            console.log('[OpenClaw] 나무위키 트렌드 자동 갱신 실행:', new Date());
+            
+            let browserContext = null;
+            try {
+                browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
+                    headless: false,
+                    viewport: { width: 1280, height: 720 },
+                    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                });
+
+                const page = await browserContext.newPage();
+
+                await page.goto('https://namu.wiki/w/%EB%82%98%EB%AC%B4%EC%9C%84%ED%82%A4:%EB%8C%80%EB%AC%B8', { 
+                    waitUntil: 'domcontentloaded',
+                    timeout: 60000 
+                });
+                
+                await page.waitForTimeout(5000);
+                const pageText = await page.evaluate(() => document.body.innerText);
+                
+                console.log('[OpenClaw] 스케줄 - 텍스트 추출 완료. 길이:', pageText.length);
+
+                const completion = await openai.chat.completions.create({
+                    model: "gpt-4o-mini",
+                    messages: [
+                        {
+                            role: "system",
+                            content: `
+                            너는 웹페이지 텍스트에서 '실시간 검색어' 또는 '인기 검색어' 순위를 추출하는 에이전트야.
+                            잡다한 문서 내용은 무시하고, 1위부터 10위(또는 그 이상)까지의 검색어 키워드만 뽑아서 JSON 리스트로 반환해.
+                            형식: { "rankings": ["키워드1", "키워드2", ...] }
+                            만약 순위를 찾을 수 없으면 빈 리스트를 반환해.
+                            `
+                        },
+                        {
+                            role: "user",
+                            content: `다음 텍스트에서 실시간 검색어 순위를 찾아줘:\n\n${pageText.substring(0, 15000)}`
+                        }
+                    ],
+                    response_format: { type: "json_object" }
+                });
+
+                const result = JSON.parse(completion.choices[0].message.content);
+                const rankings = result.rankings || [];
+                const timestamp = new Date();
+                
+                await db.collection('wikiTrend').doc('current').set({
+                    rankings: rankings,
+                    updatedAt: timestamp,
+                    source: 'namuwiki'
+                });
+                
+                console.log('[OpenClaw] 스케줄 - Firestore 저장 완료:', rankings.length, '개 항목');
+
+            } catch (error) {
+                console.error('[OpenClaw] 스케줄 실행 중 에러:', error.message);
+            } finally {
+                if (browserContext) {
+                    try {
+                        await browserContext.close();
+                    } catch (closeError) {
+                        console.error('[OpenClaw] 브라우저 종료 중 에러:', closeError.message);
+                    }
+                }
+            }
+        });
+
+        console.log('[OpenClaw] 나무위키 트렌드 자동 갱신 스케줄 설정 완료 (매 정시)');
+    },
+
+    // 나무위키 트렌드 자동 갱신 중지
+    stopNamuwikiSchedule: () => {
+        if (namuwikiScheduleJob) {
+            namuwikiScheduleJob.stop();
+            console.log('[OpenClaw] 나무위키 트렌드 자동 갱신 중지');
         }
     }
 };
