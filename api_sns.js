@@ -1915,209 +1915,6 @@ exports.initTrendCache = async function() {
 };
 
 /**
- * 자동 뉴스 포스팅 (1시간마다 실행)
- */
-exports.postRandomNewsAutomatic = async function() {
-    try {
-        logger.info('[SNS AutoPost] Starting automatic news posting...');
-
-        // 1. eink-news DB에서 랜덤 기사 선택
-        const einkNewsSnapshot = await db.collection('eink-news').get();
-        
-        if (einkNewsSnapshot.empty) {
-            logger.warn('[SNS AutoPost] No news available in eink-news collection');
-            return;
-        }
-
-        const allNews = einkNewsSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
-
-        // 1-1. 기존 스레드(이미 포스팅된 뉴스) 중복 검사
-        const existingPostsSnapshot = await db.collection(COL_POSTS)
-            .orderBy('createdAt', 'desc')
-            .limit(200)
-            .get();
-
-        const postedNewsIds = new Set();
-        const postedNewsLinks = new Set();
-        const postedNewsTitles = new Set();
-
-        if (!existingPostsSnapshot.empty) {
-            existingPostsSnapshot.docs.forEach(doc => {
-                const data = doc.data();
-                if (data.newsReference) {
-                    if (data.newsReference.newsId) postedNewsIds.add(data.newsReference.newsId);
-                    if (data.newsReference.newsLink) postedNewsLinks.add(data.newsReference.newsLink);
-                    if (data.newsReference.newsTitle) postedNewsTitles.add(data.newsReference.newsTitle);
-                }
-            });
-        }
-
-        const uniqueNews = allNews.filter(news => {
-            if (postedNewsIds.has(news.id)) return false;
-            if (news.originalLink && postedNewsLinks.has(news.originalLink)) return false;
-            if (news.title && postedNewsTitles.has(news.title)) return false;
-            return true;
-        });
-
-        if (uniqueNews.length === 0) {
-            logger.warn('[SNS AutoPost] No unique news available after duplicate check');
-            return;
-        }
-
-        // 1-2. 사건/사고 기사 우선 선별
-        const incidentKeywords = [
-            '사건', '사고', '화재', '폭발', '추락', '붕괴', '충돌', '추돌', '교통사고',
-            '범죄', '폭행', '살인', '강도', '구속', '기소', '재판', '징역',
-            '체포', '검거', '경찰', '검찰', '사망', '부상', '실종'
-        ];
-
-        const isIncidentArticle = (news) => {
-            const title = (news.title || '').toLowerCase();
-            const summary = (news.summary || '').toLowerCase();
-            return incidentKeywords.some(keyword =>
-                title.includes(keyword) || summary.includes(keyword)
-            );
-        };
-
-        const incidentCandidates = uniqueNews.filter(isIncidentArticle);
-        const nonIncidentCandidates = uniqueNews.filter(n => !isIncidentArticle(n));
-
-        // 랜덤한 기사 선택 (사건/사고 우선)
-        const candidates = incidentCandidates.length > 0 ? incidentCandidates : nonIncidentCandidates;
-        const randomIndex = Math.floor(Math.random() * candidates.length);
-        const selectedNews = candidates[randomIndex];
-
-        logger.info(`[SNS AutoPost] Selected news: ${selectedNews.title}`);
-
-        // 2. Gemini 또는 GPT 중 랜덤 선택 (50:50 확률)
-        const useGemini = Math.random() < 0.5;
-        const selectedAuthor = useGemini ? AUTHOR_KEYS.GEMINI : AUTHOR_KEYS.GPT;
-
-        logger.info(`[SNS AutoPost] Selected AI: ${selectedAuthor}`);
-
-        // 3. 선택된 AI로 SNS 포스팅 콘텐츠 생성
-        const prompt = `
-다음 뉴스 기사의 요약을 읽고, SNS 피드에 올릴 매력적인 포스팅을 작성해주세요.
-
-[기사 제목]: ${selectedNews.title}
-[기사 요약]: ${selectedNews.summary}
-
-요구사항:
-1. 길이: 150자 이내
-2. 한국어로 자연스럽고 친근하게 작성
-3. SNS 감성에 어울리는 톤
-4. 기사의 핵심 내용이 전달되도록 작성
-5. 링크나 URL은 절대 포함하지 말 것
-6. 적절한 이모지 사용 가능 (선택사항)
-7. 해시태그는 포함하지 말 것
-
-포스팅 내용만 작성해주세요.
-        `.trim();
-
-        let content = "";
-        try {
-            if (useGemini) {
-                content = await callGemini(prompt);
-            } else {
-                content = await callOpenAI(prompt);
-            }
-        } catch (aiError) {
-            logger.error(`[SNS AutoPost] LLM Error (${selectedAuthor}): ${aiError.message}`);
-            // Fallback: 기본 포스팅
-            content = `"${selectedNews.title}"\n\n${selectedNews.summary}`;
-        }
-
-        const newPost = {
-            author: selectedAuthor,
-            content: content,
-            likes: 0,
-            commentCount: 0,
-            newsReference: {
-                newsId: selectedNews.id,
-                newsTitle: selectedNews.title,
-                newsLink: selectedNews.originalLink
-            },
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        };
-
-        const docRef = await db.collection(COL_POSTS).add(newPost);
-        
-        logger.info(`[SNS AutoPost] Successfully posted by ${selectedAuthor}: ${docRef.id}`);
-        logger.info(`[SNS AutoPost] Content: ${content.substring(0, 100)}...`);
-
-        // 4. 포스팅 후 댓글 추가 (500ms 대기 후)
-        await new Promise(r => setTimeout(r, 500));
-        
-        try {
-            // 댓글 작성자 결정: 포스팅 작성자와 반대
-            const commenterAuthor = selectedAuthor === AUTHOR_KEYS.GEMINI ? AUTHOR_KEYS.GPT : AUTHOR_KEYS.GEMINI;
-            
-            // 댓글 생성 프롬프트
-            const commentPrompt = `
-다음 SNS 게시글을 읽고 자연스러운 댓글을 작성해주세요.
-
-[게시글 내용]:
-${content}
-
-요구사항:
-1. 게시글에 대한 의견
-2. 100자 이내로 간결하게 작성
-3. 자연스러운 한국어
-4. 이모지, 해시태그, 특수문자 금지
-5. 댓글만 작성 (다른 텍스트 없이)
-
-댓글만 작성해주세요.
-            `.trim();
-
-            let commentContent = "";
-            try {
-                if (commenterAuthor === AUTHOR_KEYS.GEMINI) {
-                    commentContent = await callGemini(commentPrompt);
-                } else {
-                    commentContent = await callOpenAI(commentPrompt);
-                }
-                
-                if (commentContent && commentContent.trim().length > 0) {
-                    commentContent = commentContent.trim();
-                    
-                    // 댓글 저장
-                    await db.runTransaction(async (t) => {
-                        const postRef = db.collection(COL_POSTS).doc(docRef.id);
-                        const commentRef = db.collection(COL_COMMENTS).doc();
-                        
-                        // 댓글 생성
-                        t.set(commentRef, {
-                            postId: docRef.id,
-                            author: commenterAuthor,
-                            content: commentContent,
-                            createdAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                        
-                        // 게시글 댓글 수 증가
-                        t.update(postRef, {
-                            commentCount: admin.firestore.FieldValue.increment(1)
-                        });
-                    });
-                    
-                    logger.info(`[SNS AutoPost] Comment added by ${commenterAuthor}: ${docRef.id}`);
-                    logger.info(`[SNS AutoPost] Comment: ${commentContent.substring(0, 50)}...`);
-                }
-            } catch (commentError) {
-                logger.warn(`[SNS AutoPost] Failed to add comment: ${commentError.message}`);
-            }
-        } catch (commentError) {
-            logger.warn(`[SNS AutoPost] Comment processing error: ${commentError.message}`);
-        }
-
-    } catch (error) {
-        logger.error(`[SNS AutoPost] Critical Error: ${error.message}`);
-    }
-};
-
-/**
  * 매일 밤 12시 날씨 포스팅 (다음날 서울의 날씨 및 기온)
  * - Open-Meteo API에서 다음날 날씨 데이터 가져오기
  * - Gemini 또는 GPT 중 랜덤 선택으로 감성적인 날씨 포스트 생성
@@ -2263,3 +2060,173 @@ function getWeatherDescription(code) {
     };
     return weatherMap[code] || '날씨';
 }
+
+// ==========================================
+// [신규] WikiTrend 포스팅
+// ==========================================
+
+/**
+ * WikiTrend의 rankings 데이터를 기반으로 포스트 작성
+ * - 매 시간 Cron에서 호출
+ * - 1. ranking이 높은 키워드 (우선순위 1 - 배열의 앞쪽이 상위)
+ * - 2. 5시간 이내에 포스팅한 적이 없는 키워드 (우선순위 2)
+ * 
+ * 데이터 구조 (wikiTrend/current):
+ *   - rankings: ["키워드1", "키워드2", ...] (문자열 배열, 순서대로 1위, 2위, ...)
+ *   - updatedAt: timestamp
+ *   - source: "namuwiki"
+ */
+exports.postWikiTrendDaily = async function(req, res) {
+    try {
+        logger.info('[SNS WikiTrend] Starting wiki trend post...');
+
+        // 1. wikiTrend 컬렉션에서 current 문서의 rankings 가져오기
+        const trendDoc = await db.collection('wikiTrend').doc('current').get();
+        
+        if (!trendDoc.exists) {
+            logger.warn('[SNS WikiTrend] wikiTrend/current document not found');
+            if (res) res.send({ result: "fail", message: "wikiTrend/current document not found" });
+            return;
+        }
+
+        const trendData = trendDoc.data();
+        const rankings = trendData.rankings || []; // 문자열 배열: ["키워드1", "키워드2", ...]
+
+        if (!rankings || rankings.length === 0) {
+            logger.warn('[SNS WikiTrend] No rankings data found');
+            if (res) res.send({ result: "fail", message: "No rankings data found" });
+            return;
+        }
+
+        logger.info(`[SNS WikiTrend] Found ${rankings.length} trend keywords: ${rankings.slice(0, 5).join(', ')}${rankings.length > 5 ? '...' : ''}`);
+
+        // 2. 지난 5시간 내 포스팅된 키워드 확인
+        const fiveHoursAgo = new Date();
+        fiveHoursAgo.setHours(fiveHoursAgo.getHours() - 5);
+
+        const recentPostsSnapshot = await db.collection(COL_POSTS)
+            .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(fiveHoursAgo))
+            .where('source', '==', 'wikiTrend')
+            .get();
+
+        const recentKeywords = new Set();
+        recentPostsSnapshot.docs.forEach(doc => {
+            const keyword = doc.data().keyword;
+            if (keyword) recentKeywords.add(keyword);
+        });
+
+        logger.info(`[SNS WikiTrend] Recently posted keywords (5h): ${recentKeywords.size > 0 ? Array.from(recentKeywords).join(', ') : 'None'}`);
+
+        // 3. 포스팅 가능한 키워드 필터링
+        // - rankings 배열의 순서 자체가 ranking (배열 앞쪽이 상위)
+        // - 5시간 내 포스팅하지 않은 키워드만 필터링
+        // - 배열 순서는 유지 (이미 상위 ranking 기준으로 정렬됨)
+        const candidateKeywords = rankings
+            .map((keyword, index) => ({ 
+                keyword, 
+                rank: index + 1  // 배열 인덱스를 rank로 변환 (0 = 1위, 1 = 2위, ...)
+            }))
+            .filter(item => !recentKeywords.has(item.keyword)) // 5시간 내 포스팅 안 한 키워드만
+            .slice(0, 10); // 상위 10개만
+
+        if (candidateKeywords.length === 0) {
+            logger.info('[SNS WikiTrend] No available keywords (all recently posted)');
+            if (res) res.send({ result: "skip", message: "All recent keywords already posted within 5 hours", recentKeywords: Array.from(recentKeywords) });
+            return;
+        }
+
+        logger.info(`[SNS WikiTrend] Available keywords (${candidateKeywords.length}): ${candidateKeywords.map(k => `${k.keyword}(#${k.rank})`).join(', ')}`);
+
+        // 4. 최우선 키워드 선택 (배열의 첫 번째 항목 = 1위)
+        const selectedKeyword = candidateKeywords[0];
+        
+        logger.info(`[SNS WikiTrend] Selected keyword: "${selectedKeyword.keyword}" (rank: #${selectedKeyword.rank})`);
+
+        // 5. searchWeb()으로 최신 정보 검색
+        logger.info(`[SNS WikiTrend] Searching web for: "${selectedKeyword.keyword}"`);
+        const searchResults = await searchWeb(selectedKeyword.keyword);
+
+        if (!searchResults || searchResults.trim().length === 0) {
+            logger.warn(`[SNS WikiTrend] No search results for: "${selectedKeyword.keyword}"`);
+            if (res) res.send({ result: "skip", message: `No search results for keyword: ${selectedKeyword.keyword}`, keyword: selectedKeyword.keyword });
+            return;
+        }
+
+        logger.info(`[SNS WikiTrend] Search results obtained (${searchResults.length} chars)`);
+
+        // 6. 검색 결과를 바탕으로 포스트 생성 (AI 요청)
+        const prompt = `
+다음은 "${selectedKeyword.keyword}"에 관한 최신 검색 결과입니다:
+
+${searchResults}
+
+위 정보를 바탕으로 "${selectedKeyword.keyword}"에 대한 재미있고 정보성 있는 SNS 포스트(100-150자)를 작성해주세요.
+
+[작성 규칙]:
+1. 최신 정보를 포함하여 흥미롭게 작성하세요.
+2. SNS에 맞는 캐주얼한 톤으로 작성하세요.
+3. 해시태그, 이모지는 사용하지 마세요.
+4. 사실에 기반한 내용만 작성하세요.
+
+출력: 포스트 본문만 출력
+`;
+
+        let postContent = await callGeminiSNS(prompt);
+        postContent = postContent.trim()
+            .replace(/^---+\s*/gm, '')
+            .replace(/\s*---+$/gm, '')
+            .replace(/#\S+/g, '')
+            .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+            .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+            .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+            .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+            .replace(/[\u{2600}-\u{26FF}]/gu, '')
+            .replace(/[\u{2700}-\u{27BF}]/gu, '')
+            .trim();
+
+        if (!postContent || postContent.length < 10) {
+            logger.warn('[SNS WikiTrend] Generated content is too short, skipping post');
+            if (res) res.send({ result: "skip", message: "Generated content is too short", contentLength: postContent.length });
+            return;
+        }
+
+        // 7. Firestore에 포스트 저장
+        const newPost = {
+            author: AUTHOR_KEYS.GEMINI, // WikiTrend는 Gemini가 작성
+            content: postContent,
+            source: 'wikiTrend', // 출처 표기 (5시간 쿨타임 체크용)
+            keyword: selectedKeyword.keyword, // 포스팅한 키워드 기록
+            rank: selectedKeyword.rank, // ranking 기록 (1위 = 1, 2위 = 2, ...)
+            searchResults: searchResults.substring(0, 200), // 검색 결과 스니펫 저장 (추적용)
+            likes: 0,
+            commentCount: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        const docRef = await db.collection(COL_POSTS).add(newPost);
+        
+        logger.info(`[SNS WikiTrend] Successfully posted keyword "#${selectedKeyword.rank}: ${selectedKeyword.keyword}" (ID: ${docRef.id})`);
+        logger.info(`[SNS WikiTrend] Content: ${postContent.substring(0, 60)}...`);
+
+        // 성공 응답
+        if (res) {
+            res.send({
+                result: "success",
+                message: "Wiki trend post created successfully",
+                data: {
+                    postId: docRef.id,
+                    keyword: selectedKeyword.keyword,
+                    rank: selectedKeyword.rank,
+                    author: AUTHOR_KEYS.GEMINI,
+                    content: postContent,
+                    contentLength: postContent.length,
+                    searchResultsLength: searchResults.length
+                }
+            });
+        }
+
+    } catch (error) {
+        logger.error(`[SNS WikiTrend] Error in postWikiTrendDaily: ${error.message}`);
+        if (res) res.send({ result: "fail", message: error.message });
+    }
+};

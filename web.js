@@ -137,6 +137,7 @@ app.post('/sns/deleteComment', apiSns.deleteComment); // 댓글 삭제
 app.post('/sns/autoCreatePost', apiSns.autoCreatePost); // AI 자동 게시
 app.post('/sns/autoAddComment', apiSns.autoAddComment); // AI 자동 댓글
 app.post('/sns/autoDeleteOldPosts', apiSns.autoDeleteOldPosts); // 24시간 지난 게시글 자동 삭제
+app.post('/sns/postWikiTrendDaily', apiSns.postWikiTrendDaily); // WikiTrend 포스팅 (테스트용)
 // app.get('/sns/getTrend', apiSns.getTrend); // Ezme 실시간 트렌드 - 비활성화됨
 app.get('/sns/getItTrend', apiSns.getItTrend); // 긱뉴스 IT 트렌드
 app.get('/sns/getStockTrend', apiSns.getStockTrend); // 한국경제 주식 트렌드
@@ -213,6 +214,10 @@ if (!isLocal) {
     // API.getNews -> apiNews.getNews
     if (apiNews) await apiNews.getNews(null, null);
     
+    // WikiTrend 기반 포스팅 (매 시간)
+    console.log('WikiTrend 포스팅 시도');
+    if (apiSns) await apiSns.postWikiTrendDaily();
+    
     // AI 자동 게시글 작성 (매 시간)
     console.log('AI 자동 게시글 작성 시도');
     if (apiSns) await apiSns.autoCreatePost(null, null);
@@ -220,10 +225,6 @@ if (!isLocal) {
     // AI 자동 댓글 작성 (매 시간)
     console.log('AI 자동 댓글 작성 시도');
     if (apiSns) await apiSns.autoAddComment(null, null);
-    
-    // 뉴스 DB에서 랜덤 기사 자동 포스팅 (매 시간)
-    console.log('뉴스 자동 포스팅');
-    if (apiSns) await apiSns.postRandomNewsAutomatic();
     
     // 24시간 지난 게시글 자동 삭제 (매 시간)
     console.log('오래된 게시글 삭제 시도');
