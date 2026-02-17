@@ -382,9 +382,10 @@ exports.deleteComment = async function(req, res) {
 // ==========================================
 
 /**
- * 24시간이 지난 게시글 자동 삭제
+ * 24시간이 지난 게시글과 댓글 자동 삭제
  * - Cron에서 호출
- * - 게시글과 관련된 댓글도 함께 삭제
+ * - 24시간 이전의 게시글 삭제
+ * - 24시간 이전의 모든 댓글 삭제 (게시글 존재 여부 무관)
  */
 exports.autoDeleteOldPosts = async function(req, res) {
     try {
@@ -392,49 +393,80 @@ exports.autoDeleteOldPosts = async function(req, res) {
         const twentyFourHoursAgo = new Date();
         twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
 
-        // 24시간 이전에 작성된 게시글 조회
+        const timestamp24hAgo = admin.firestore.Timestamp.fromDate(twentyFourHoursAgo);
+
+        logger.info(`[SNS] Starting auto delete for posts and comments older than 24 hours`);
+
+        // 1. 24시간 이전에 작성된 게시글 조회
         const oldPostsSnapshot = await db.collection(COL_POSTS)
-            .where('createdAt', '<', admin.firestore.Timestamp.fromDate(twentyFourHoursAgo))
+            .where('createdAt', '<', timestamp24hAgo)
             .get();
 
-        if (oldPostsSnapshot.empty) {
-            logger.info(`[SNS] No old posts to delete.`);
-            if (res) return res.send({ result: "success", message: "No old posts to delete" });
-            return;
-        }
-
-        let deletedCount = 0;
+        let postDeletedCount = 0;
+        let commentsDeletedWithPostCount = 0;
         const batch = db.batch();
 
-        for (const postDoc of oldPostsSnapshot.docs) {
-            const postId = postDoc.id;
-            
-            // 해당 게시글의 댓글들도 삭제
-            const commentsSnapshot = await db.collection(COL_COMMENTS)
-                .where('postId', '==', postId)
-                .get();
+        // 2. 게시글과 관련된 댓글들 삭제
+        if (!oldPostsSnapshot.empty) {
+            for (const postDoc of oldPostsSnapshot.docs) {
+                const postId = postDoc.id;
+                
+                // 해당 게시글의 댓글들 조회
+                const commentsSnapshot = await db.collection(COL_COMMENTS)
+                    .where('postId', '==', postId)
+                    .get();
 
-            commentsSnapshot.docs.forEach(commentDoc => {
+                commentsSnapshot.docs.forEach(commentDoc => {
+                    batch.delete(commentDoc.ref);
+                    commentsDeletedWithPostCount++;
+                });
+
+                // 게시글 삭제
+                batch.delete(postDoc.ref);
+                postDeletedCount++;
+                
+                logger.info(`[SNS] Marking post ${postId} and its ${commentsSnapshot.size} comments for deletion`);
+            }
+        }
+
+        // 3. 게시글과 무관하게 24시간 이전의 모든 댓글 조회 및 삭제
+        const orphanCommentsSnapshot = await db.collection(COL_COMMENTS)
+            .where('createdAt', '<', timestamp24hAgo)
+            .get();
+
+        let orphanCommentsDeletedCount = 0;
+        
+        if (!orphanCommentsSnapshot.empty) {
+            orphanCommentsSnapshot.docs.forEach(commentDoc => {
                 batch.delete(commentDoc.ref);
+                orphanCommentsDeletedCount++;
             });
-
-            // 게시글 삭제
-            batch.delete(postDoc.ref);
             
-            deletedCount++;
-            logger.info(`[SNS] Marking post ${postId} and its ${commentsSnapshot.size} comments for deletion`);
+            logger.info(`[SNS] Found ${orphanCommentsSnapshot.size} orphan comments older than 24 hours to delete`);
         }
 
         // 배치 실행
         await batch.commit();
 
-        logger.info(`[SNS] Auto deleted ${deletedCount} old posts (older than 24 hours)`);
+        const totalCommentsDeleted = commentsDeletedWithPostCount + orphanCommentsDeletedCount;
+        logger.info(`[SNS] Auto delete completed:`);
+        logger.info(`  - Posts deleted: ${postDeletedCount}`);
+        logger.info(`  - Comments deleted with posts: ${commentsDeletedWithPostCount}`);
+        logger.info(`  - Orphan comments deleted: ${orphanCommentsDeletedCount}`);
+        logger.info(`  - Total comments deleted: ${totalCommentsDeleted}`);
         
-        if (res) res.send({ 
-            result: "success", 
-            deletedCount: deletedCount,
-            message: `${deletedCount} old posts deleted`
-        });
+        if (res) {
+            res.send({ 
+                result: "success",
+                data: {
+                    postsDeleted: postDeletedCount,
+                    commentsDeletedWithPosts: commentsDeletedWithPostCount,
+                    orphanCommentsDeleted: orphanCommentsDeletedCount,
+                    totalCommentsDeleted: totalCommentsDeleted,
+                    message: `${postDeletedCount} posts and ${totalCommentsDeleted} comments deleted (older than 24 hours)`
+                }
+            });
+        }
 
     } catch (e) {
         logger.error(`[SNS] autoDeleteOldPosts Error: ${e.message}`);
