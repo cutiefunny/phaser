@@ -190,37 +190,34 @@ module.exports = {
         try {
             console.log('[OpenClaw] 나무위키 접속 시도...');
 
-            // 1. 브라우저 실행 (Cloudflare 우회를 위해 Headless: false 권장)
+            // 1. 브라우저 실행
+            // 클램쉘 모드 등 디스플레이 부재 상황에 대응하여 headless: true 사용
             browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-                headless: false, // 보안 뚫기 위해 브라우저 노출
+                headless: true, // 클램쉘 모드 대응
                 viewport: { width: 1280, height: 720 },
-                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                args: ['--no-sandbox', '--disable-setuid-sandbox'] // Linux/클램쉘 모드 호환성
             });
 
             const page = await browserContext.newPage();
 
             // 2. 나무위키 메인 접속
-            // (타임아웃을 넉넉히 줍니다. Cloudflare 챌린지가 뜰 수 있음)
             await page.goto('https://namu.wiki/w/%EB%82%98%EB%AC%B4%EC%9C%84%ED%82%A4:%EB%8C%80%EB%AC%B8', { 
                 waitUntil: 'domcontentloaded',
                 timeout: 60000 
             });
             
-            // 3. 로딩 대기 (Cloudflare 통과 및 데이터 로딩)
+            // 3. 로딩 대기
             await page.waitForTimeout(5000); 
 
             // 4. 텍스트 추출
-            // 전체 텍스트를 가져오되, 너무 길면 토큰 비용이 드니 '실시간' 관련 키워드 주변을 자르거나
-            // 혹은 그냥 body 전체 텍스트를 가져와서 LLM에게 맡깁니다.
             const pageText = await page.evaluate(() => document.body.innerText);
             
-            // 텍스트 길이 최적화 (너무 길 경우 앞뒤 10000자만 보낸다거나 하는 전략 가능)
-            // 여기서는 일단 단순화해서 보냅니다.
             console.log('[OpenClaw] 텍스트 추출 완료. 길이:', pageText.length);
 
             // 5. LLM에게 분석 요청
             const completion = await openai.chat.completions.create({
-                model: "gpt-4o-mini", // 빠르고 저렴한 모델
+                model: "gpt-4o-mini",
                 messages: [
                     {
                         role: "system",
@@ -233,7 +230,7 @@ module.exports = {
                     },
                     {
                         role: "user",
-                        content: `다음 텍스트에서 실시간 검색어 순위를 찾아줘:\n\n${pageText.substring(0, 15000)}` // 텍스트가 너무 길면 앞부분에 주로 있음
+                        content: `다음 텍스트에서 실시간 검색어 순위를 찾아줘:\n\n${pageText.substring(0, 15000)}`
                     }
                 ],
                 response_format: { type: "json_object" }
@@ -263,10 +260,16 @@ module.exports = {
             });
 
         } catch (error) {
-            console.error('[OpenClaw] 나무위키 에러:', error);
+            console.error('[OpenClaw] 나무위키 에러:', error.message);
             res.status(500).json({ success: false, error: error.message });
         } finally {
-            if (browserContext) await browserContext.close();
+            if (browserContext) {
+                try {
+                    await browserContext.close();
+                } catch (closeError) {
+                    console.error('[OpenClaw] 브라우저 종료 중 에러:', closeError.message);
+                }
+            }
         }
     },
 
@@ -286,9 +289,10 @@ module.exports = {
             let browserContext = null;
             try {
                 browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-                    headless: false,
+                    headless: true, // 클램쉘 모드 대응
                     viewport: { width: 1280, height: 720 },
-                    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    args: ['--no-sandbox', '--disable-setuid-sandbox'] // Linux/클램쉘 모드 호환성
                 });
 
                 const page = await browserContext.newPage();
