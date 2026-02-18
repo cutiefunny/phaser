@@ -219,8 +219,8 @@ app.listen(port, '0.0.0.0', () => {
     if (apiSns) await apiSns.postWikiTrendDaily();
     
     // AI 자동 게시글 작성 (매 시간)
-    console.log('AI 자동 게시글 작성 시도');
-    if (apiSns) await apiSns.autoCreatePost(null, null);
+    // console.log('AI 자동 게시글 작성 시도');
+    // if (apiSns) await apiSns.autoCreatePost(null, null);
     
     // AI 자동 댓글 작성 (매 시간)
     console.log('AI 자동 댓글 작성 시도');

@@ -2240,6 +2240,28 @@ ${searchResults}
         logger.info(`[SNS WikiTrend] Successfully posted keyword "#${selectedKeyword.rank}: ${selectedKeyword.keyword}" (ID: ${docRef.id})`);
         logger.info(`[SNS WikiTrend] Content: ${postContent.substring(0, 60)}...`);
 
+        // 자동 댓글 트리거: GPT가 먼저 답글을 달고, Exaone이 사용 가능하면 추가 답글을 시도
+        setImmediate(() => {
+            (async () => {
+                try {
+                    await createAIReply(docRef.id, postContent, AUTHOR_KEYS.GPT);
+                } catch (err) {
+                    logger.error(`[SNS WikiTrend] GPT reply failed: ${err.message}`);
+                }
+
+                try {
+                    const isExaone = await checkExaoneAvailable();
+                    if (isExaone) {
+                        // Exaone가 답글을 달기 전에 약간 대기
+                        await new Promise(r => setTimeout(r, 1500));
+                        await createAIReply(docRef.id, postContent, AUTHOR_KEYS.EXAONE);
+                    }
+                } catch (err) {
+                    logger.error(`[SNS WikiTrend] Exaone reply failed: ${err.message}`);
+                }
+            })();
+        });
+
         // 성공 응답
         if (res) {
             res.send({
