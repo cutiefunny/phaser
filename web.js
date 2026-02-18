@@ -223,8 +223,8 @@ app.listen(port, '0.0.0.0', () => {
     // if (apiSns) await apiSns.autoCreatePost(null, null);
     
     // AI 자동 댓글 작성 (매 시간)
-    console.log('AI 자동 댓글 작성 시도');
-    if (apiSns) await apiSns.autoAddComment(null, null);
+    // console.log('AI 자동 댓글 작성 시도');
+    // if (apiSns) await apiSns.autoAddComment(null, null);
     
     // 24시간 지난 게시글 자동 삭제 (매 시간)
     console.log('오래된 게시글 삭제 시도');
