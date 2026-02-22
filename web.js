@@ -28,6 +28,7 @@ const apiNews = require('./api_news');   // 뉴스 수집 및 조회
 const apiMisc = require('./api_misc');   // 운세, 상품관리, 알림톡, 기타
 const apiSns = require('./api_sns');   // SNS 게시글 및 댓글 관리
 const apiOpenClaw = require('./api_openclaw'); // OpenClaw 스타일 웹 크롤링
+const apiNyanyapang = require('./api_nyanyapang'); // 냐냐팡 점수 CRUD
 
 console.log('=== [DEBUG 7] 외부 라이브러리(cron, axios, redis, cors) 로딩 ===');
 const cron = require('node-cron');
@@ -146,6 +147,13 @@ app.get('/sns/getStockTrend', apiSns.getStockTrend); // 한국경제 주식 트�
 app.post('/saveProduct', apiMisc.saveProduct);
 app.post('/updateProduct', apiMisc.updateProduct);
 app.post('/deleteProduct', apiMisc.deleteProduct);
+
+// 5. 냐냐팡 게임 관련 (점수 관리) -> api_nyanyapang.js
+app.post('/nyanyapang/saveScore', apiNyanyapang.saveScorerHandler);
+app.post('/nyanyapang/getRecentScores', apiNyanyapang.getRecentScoresHandler);
+app.post('/nyanyapang/getPlayerScores', apiNyanyapang.getPlayerScoresHandler);
+app.post('/nyanyapang/getTodayTopScores', apiNyanyapang.getTodayTopScoresHandler);
+app.post('/nyanyapang/getWeeklyTopScores', apiNyanyapang.getWeeklyTopScoresHandler);
 
 // OpenClaw 스타일 웹 크롤링 API -> api_openclaw.js
 app.post('/openclaw/youtube', apiOpenClaw.getYoutubeTitles);
