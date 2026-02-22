@@ -52,7 +52,9 @@ const corsOptions = {
     'https://musclecat-studio.com',
     'https://stock-info-smoky.vercel.app',
     'https://eink-news.vercel.app',
-    'https://musclecat-sns.vercel.app'
+    'https://musclecat-sns.vercel.app',
+    'https://nyanyapang.com',
+    'https://www.nyanyapang.com',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
