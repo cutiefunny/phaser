@@ -154,6 +154,7 @@ app.post('/nyanyapang/getRecentScores', apiNyanyapang.getRecentScoresHandler);
 app.post('/nyanyapang/getPlayerScores', apiNyanyapang.getPlayerScoresHandler);
 app.post('/nyanyapang/getTodayTopScores', apiNyanyapang.getTodayTopScoresHandler);
 app.post('/nyanyapang/getWeeklyTopScores', apiNyanyapang.getWeeklyTopScoresHandler);
+app.post('/nyanyapang/getAllPlayerRankings', apiNyanyapang.getAllPlayerRankingsHandler);
 
 // OpenClaw 스타일 웹 크롤링 API -> api_openclaw.js
 app.post('/openclaw/youtube', apiOpenClaw.getYoutubeTitles);

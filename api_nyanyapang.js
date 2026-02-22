@@ -9,28 +9,68 @@ const COLLECTION_NAME = "nyanyapang_scores";
 // ==========================================
 
 /**
- * 점수 저장 (Create)
+ * 점수 저장 (Create) - 중복 제거 로직 포함
  * @param {string} name - 플레이어 이름
  * @param {number} score - 획득 점수
+ * @param {string} deviceId - 디바이스 ID
  * @returns {Promise<object>} 저장 결과
  */
-exports.saveScore = async function(name, score) {
+exports.saveScore = async function(name, score, deviceId) {
     try {
-        const param = {
-            name: name,
-            score: score,
-            createTm: moment().format('YYYY-MM-DD HH:mm:ss'),
-            createTs: new Date()
-        };
+        // 같은 name과 deviceId를 가진 기존 문서들 조회
+        const snapshot = await db.collection(COLLECTION_NAME)
+            .where('name', '==', name)
+            .where('deviceId', '==', deviceId)
+            .orderBy('score', 'desc')
+            .get();
         
-        const docRef = db.collection(COLLECTION_NAME).doc();
-        await docRef.set(param);
-        logger.info(`Score saved - Name: ${name}, Score: ${score}, Time: ${param.createTm}`);
-        
-        return {
-            result: "success",
-            data: param
-        };
+        const existingDocs = [];
+        snapshot.forEach(doc => {
+            existingDocs.push({
+                id: doc.id,
+                score: doc.data().score
+            });
+        });
+
+        // 새로운 점수가 기존의 최고 점수보다 높으거나 같으면 저장
+        if (existingDocs.length === 0 || score >= existingDocs[0].score) {
+            const param = {
+                name: name,
+                score: score,
+                deviceId: deviceId,
+                createTm: moment().format('YYYY-MM-DD HH:mm:ss'),
+                createTs: new Date()
+            };
+            
+            const docRef = db.collection(COLLECTION_NAME).doc();
+            await docRef.set(param);
+            logger.info(`Score saved - Name: ${name}, Score: ${score}, DeviceId: ${deviceId}, Time: ${param.createTm}`);
+            
+            // 새로운 점수가 저장된 후 같은 name+deviceId에서 더 낮은 점수의 문서들 삭제
+            if (existingDocs.length > 0) {
+                const batch = db.batch();
+                existingDocs.forEach(doc => {
+                    if (doc.score < score) {
+                        batch.delete(db.collection(COLLECTION_NAME).doc(doc.id));
+                    }
+                });
+                await batch.commit();
+                logger.info(`Deleted ${existingDocs.filter(d => d.score < score).length} lower score records for Name: ${name}, DeviceId: ${deviceId}`);
+            }
+            
+            return {
+                result: "success",
+                data: param
+            };
+        } else {
+            // 새로운 점수가 기존 최고 점수보다 낮으면 저장하지 않음
+            logger.info(`Score not saved - Lower than existing high score. Name: ${name}, New Score: ${score}, Existing High Score: ${existingDocs[0].score}`);
+            return {
+                result: "skip",
+                message: `Score ${score} is lower than existing high score ${existingDocs[0].score}`,
+                data: null
+            };
+        }
     } catch (err) {
         logger.error("Error saving score: ", err);
         return {
@@ -71,13 +111,20 @@ exports.getRecentScores = async function(limit = 10) {
 /**
  * 특정 플레이어의 점수 조회
  * @param {string} name - 플레이어 이름
+ * @param {string} deviceId - 디바이스 ID (선택사항)
  * @returns {Promise<array>} 플레이어의 점수 목록
  */
-exports.getPlayerScores = async function(name) {
+exports.getPlayerScores = async function(name, deviceId = null) {
     try {
-        const snapshot = await db.collection(COLLECTION_NAME)
-            .where('name', '==', name)
-            .orderBy('score', 'desc')
+        let query = db.collection(COLLECTION_NAME)
+            .where('name', '==', name);
+        
+        if (deviceId) {
+            query = query.where('deviceId', '==', deviceId);
+        }
+        
+        const snapshot = await query
+            .orderBy('createTs', 'desc')
             .get();
         
         const result = [];
@@ -88,7 +135,7 @@ exports.getPlayerScores = async function(name) {
             });
         });
         
-        logger.info(`Retrieved ${result.length} scores for player: ${name}`);
+        logger.info(`Retrieved ${result.length} scores for player: ${name}${deviceId ? ` (DeviceId: ${deviceId})` : ''}`);
         return result;
     } catch (err) {
         logger.error("Error retrieving player scores: ", err);
@@ -163,17 +210,34 @@ exports.getWeeklyTopScores = async function(limit = 10) {
 };
 
 /**
- * 전체 플레이어 순위 조회
+ * 전체 플레이어 순위 조회 (디바이스별)
+ * @param {string} deviceId - 디바이스 ID (선택사항)
  * @param {number} limit - 조회할 개수 (기본값: 100)
  * @returns {Promise<array>} 플레이어별 최고 점수 순위
  */
-exports.getAllPlayerRankings = async function(limit = 100) {
+exports.getAllPlayerRankings = async function(deviceId = null, limit = 100) {
     try {
-        // 이는 MongoDB aggregation이 필요한 경우가 있으므로
-        // 별도 처리 필요
-        logger.info(`Retrieved all player rankings`);
+        let query = db.collection(COLLECTION_NAME);
         
-        return [];
+        if (deviceId) {
+            query = query.where('deviceId', '==', deviceId);
+        }
+        
+        const snapshot = await query
+            .orderBy('score', 'desc')
+            .limit(limit)
+            .get();
+        
+        const result = [];
+        snapshot.forEach(doc => {
+            result.push({
+                id: doc.id,
+                ...doc.data()
+            });
+        });
+        
+        logger.info(`Retrieved ${result.length} player rankings${deviceId ? ` for DeviceId: ${deviceId}` : ''}`);
+        return result;
     } catch (err) {
         logger.error("Error retrieving player rankings: ", err);
         return [];
@@ -208,12 +272,12 @@ exports.deleteScore = async function(id) {
  */
 exports.saveScorerHandler = async function(req, res) {
     try {
-        const { name, score } = req.body;
+        const { name, score, deviceId } = req.body;
         
-        if (!name || score === undefined) {
+        if (!name || score === undefined || !deviceId) {
             return res.status(400).send({
                 result: "error",
-                message: "name and score are required"
+                message: "name, score, and deviceId are required"
             });
         }
         
@@ -224,7 +288,7 @@ exports.saveScorerHandler = async function(req, res) {
             });
         }
         
-        const result = await exports.saveScore(name, score);
+        const result = await exports.saveScore(name, score, deviceId);
         res.send(result);
     } catch (err) {
         logger.error("Error in saveScorerHandler: ", err);
@@ -260,7 +324,7 @@ exports.getRecentScoresHandler = async function(req, res) {
  */
 exports.getPlayerScoresHandler = async function(req, res) {
     try {
-        const { name } = req.query;
+        const { name, deviceId } = req.query;
         
         if (!name) {
             return res.status(400).send({
@@ -269,7 +333,7 @@ exports.getPlayerScoresHandler = async function(req, res) {
             });
         }
         
-        const result = await exports.getPlayerScores(name);
+        const result = await exports.getPlayerScores(name, deviceId || null);
         res.send({
             result: "success",
             data: result
@@ -316,6 +380,28 @@ exports.getWeeklyTopScoresHandler = async function(req, res) {
         });
     } catch (err) {
         logger.error("Error in getWeeklyTopScoresHandler: ", err);
+        res.status(500).send({
+            result: "error",
+            message: err.message
+        });
+    }
+};
+
+/**
+ * Express 라우터용 플레이어별 순위 조회 핸들러
+ */
+exports.getAllPlayerRankingsHandler = async function(req, res) {
+    try {
+        const { deviceId } = req.query;
+        const limit = parseInt(req.query.limit) || 100;
+        
+        const result = await exports.getAllPlayerRankings(deviceId || null, limit);
+        res.send({
+            result: "success",
+            data: result
+        });
+    } catch (err) {
+        logger.error("Error in getAllPlayerRankingsHandler: ", err);
         res.status(500).send({
             result: "error",
             message: err.message
