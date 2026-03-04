@@ -226,8 +226,8 @@ app.listen(port, '0.0.0.0', () => {
     if (apiNews) await apiNews.getNews(null, null);
     
     // WikiTrend 기반 포스팅 (매 시간)
-    console.log('WikiTrend 포스팅 시도');
-    if (apiSns) await apiSns.postWikiTrendDaily();
+    // console.log('WikiTrend 포스팅 시도');
+    // if (apiSns) await apiSns.postWikiTrendDaily();
     
     // AI 자동 게시글 작성 (매 시간)
     // console.log('AI 자동 게시글 작성 시도');
