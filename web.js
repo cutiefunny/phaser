@@ -149,6 +149,7 @@ app.get('/sns/getStockTrend', apiSns.getStockTrend); // 한국경제 주식 트�
 app.post('/saveProduct', apiMisc.saveProduct);
 app.post('/updateProduct', apiMisc.updateProduct);
 app.post('/deleteProduct', apiMisc.deleteProduct);
+app.post('/productInfo', apiMisc.productInfo);
 
 // 5. 냐냐팡 게임 관련 (점수 관리) -> api_nyanyapang.js
 app.post('/nyanyapang/saveScore', apiNyanyapang.saveScorerHandler);

@@ -347,3 +347,108 @@ exports.chatExaone = async function (req, res) {
         });
     }
 };
+
+// ==========================================
+// 제품 정보 조회 (prompt 분석 기반)
+// ==========================================
+
+exports.productInfo = async function (req, res) {
+    try {
+        const prompt = req.body.prompt;
+        
+        if (!prompt) {
+            return res.send({ 
+                result: "fail", 
+                message: "prompt가 필요합니다." 
+            });
+        }
+
+        // 1. 모든 상품 데이터 조회
+        const productsData = await exports.getProductsData();
+
+        if (!productsData || productsData.length === 0) {
+            return res.send({ 
+                result: "fail", 
+                message: "등록된 상품이 없습니다." 
+            });
+        }
+
+        // 2. LLM에 prompt + productsData를 함께 전달하여 제품 직접 도출
+        const { callGemini } = require('./llmHelpers');
+        
+        const productList = productsData.map(p => `- ${p.name} (카테고리: ${p.category}, 가격: ${p.price}원)`).join('\n');
+        
+        const matchingPrompt = `사용자의 요청을 분석하여 다음 상품 목록에서 사용자가 원하는 것으로 추정되는 모든 제품을 찾아주세요.
+반드시 다음의 JSON 형식으로만 응답하세요. 다른 설명은 하지 마세요:
+{ "productNames": ["제품명1", "제품명2", ...], "found": true/false }
+
+[사용자가 찾는 제품]
+${prompt}
+
+[등록된 상품 목록]
+${productList}`;
+
+        const geminiResponse = await callGemini(matchingPrompt);
+
+        let extractedProductNames = [];
+        let found = false;
+        try {
+            // Gemini 응답에서 마크다운 코드블록 제거
+            let jsonStr = geminiResponse
+                .replace(/```json\n?/g, '')  // ```json 제거
+                .replace(/```\n?/g, '')       // ``` 제거
+                .trim();
+            
+            const parseResponse = JSON.parse(jsonStr);
+            extractedProductNames = Array.isArray(parseResponse.productNames) ? parseResponse.productNames : [parseResponse.productNames];
+            found = parseResponse.found;
+        } catch (parseError) {
+            logger.error("Product matching parse error:", parseError, "Response:", geminiResponse);
+            return res.send({ 
+                result: "fail", 
+                message: "제품 매칭 실패" 
+            });
+        }
+
+        if (!extractedProductNames || extractedProductNames.length === 0 || !found) {
+            return res.send({ 
+                result: "notfound",
+                message: "요청하신 제품을 찾을 수 없습니다.",
+                availableProducts: productsData.slice(0, 10)
+            });
+        }
+
+        // 3. 매칭된 모든 제품 조회 (여러 개일 경우 모두 반환)
+        const matchedProducts = productsData.filter(product => 
+            extractedProductNames.some(name => 
+                product.name.toLowerCase() === name.toLowerCase()
+            )
+        );
+
+        if (matchedProducts && matchedProducts.length > 0) {
+            return res.send({ 
+                result: "success",
+                op: "productInfo",
+                products: matchedProducts.map(product => ({
+                    category: product.category,
+                    name: product.name,
+                    price: product.price,
+                    barcode: product.barcode
+                }))
+            });
+        } else {
+            return res.send({ 
+                result: "notfound",
+                message: `요청하신 제품들을 찾을 수 없습니다.`,
+                availableProducts: productsData.slice(0, 10)
+            });
+        }
+
+    } catch (error) {
+        logger.error(`[Product Info Error] ${error.message}`);
+        res.send({ 
+            result: "fail", 
+            message: error.message 
+        });
+    }
+};
