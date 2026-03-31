@@ -98,6 +98,7 @@ console.log('=== [DEBUG 9] 라우트(GET/POST) 연결 시작 ===');
 
 // [GET] 페이지 렌더링 (router.js 사용 - 변경 없음)
 app.get('/', router.main);
+app.get('/lesson', router.lesson);
 app.get('/main', router.main2);
 app.get('/wallball', router.wallball);
 app.get('/adventure', router.adventure);

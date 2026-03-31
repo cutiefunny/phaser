@@ -13,6 +13,10 @@ exports.main = async function (req,res){
     res.redirect(301, 'https://musclecat-studio.com');
 }
 
+exports.lesson = async function (req,res){
+    res.redirect(301, 'https://musclecat-class.vercel.app');
+}
+
 exports.main2 = async function (req,res){
     let scoreList = await CRUD.searchData("getScore","wallballshot");
     let ip = common.getServerIp();
