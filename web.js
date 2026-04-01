@@ -55,6 +55,7 @@ const corsOptions = {
     'https://musclecat-sns.vercel.app',
     'https://nyanyapang.com',
     'https://www.nyanyapang.com',
+    'https://musclecat-class.vercel.app',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
