@@ -210,6 +210,71 @@ exports.sendKakaotalk = async function(req, res) {
     }
 };
 
+exports.sendClassConfirmation = async function(req, res) {
+    let { to, className, classDate, userName } = req.body;
+    if (!to || !className || !classDate || !userName) {
+        return res.send({ result: "fail", message: "필수 정보(to, className, classDate, userName)가 누락되었습니다." });
+    }
+
+    const pfId = "KA01PF251023155453466zUYSFWha1ci";
+    const templateId = "KA01TP260331024937668DR33pfsqSPu";
+
+    try {
+        const response = await messageService.send({
+            to: to,
+            from: process.env.SOLAPI_SENDER_NUMBER,
+            text: `[수강 확정 안내]\n\n수업명 : ${className}\n수업일시 : ${classDate}\n신청자 : ${userName}\n\n취소는 수업신청 페이지에서 가능!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
+            kakaoOptions: {
+                pfId: pfId,
+                templateId: templateId,
+                variables: {
+                    "수업명": className,
+                    "수업일시": classDate,
+                    "이름": userName
+                }
+            }
+        });
+        res.send({ result: "success", op: "sendClassConfirmation", data: response });
+    } catch (e) {
+        logger.error("sendClassConfirmation exception: " + e.message);
+        console.error("[Solapi Error Details]", JSON.stringify(e, null, 2));
+        res.send({ result: "fail", message: e.message, details: e });
+    }
+};
+
+exports.sendClassWaiting = async function(req, res) {
+    let { to, className, classDate, userName, waitingNo } = req.body;
+    if (!to || !className || !classDate || !userName || !waitingNo) {
+        return res.send({ result: "fail", message: "필수 정보(to, className, classDate, userName, waitingNo)가 누락되었습니다." });
+    }
+
+    const pfId = "KA01PF251023155453466zUYSFWha1ci";
+    const templateId = "KA01TP260401033715801lucYG02Twnu";
+
+    try {
+        const response = await messageService.send({
+            to: to,
+            from: process.env.SOLAPI_SENDER_NUMBER,
+            text: `[수강 대기 안내]\n\n수업명 : ${className}\n수업일시 : ${classDate}\n신청자 : ${userName}\n대기순번 : ${waitingNo}\n\n기존 참여자의 취소로 인한 수강 확정 시 다시 카카오톡으로 알려 드립니다!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
+            kakaoOptions: {
+                pfId: pfId,
+                templateId: templateId,
+                variables: {
+                    "수업명": className,
+                    "수업일시": classDate,
+                    "이름": userName,
+                    "순번": waitingNo
+                }
+            }
+        });
+        res.send({ result: "success", op: "sendClassWaiting", data: response });
+    } catch (e) {
+        logger.error("sendClassWaiting exception: " + e.message);
+        console.error("[Solapi Error Details]", JSON.stringify(e, null, 2));
+        res.send({ result: "fail", message: e.message, details: e });
+    }
+};
+
 exports.sendFortune = async function(req, res) {
     try {
         const snapshot = await db.collection('luckMembers').get();
