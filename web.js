@@ -127,6 +127,7 @@ app.post('/getOneFortune', apiMisc.getOneFortune);
 app.post('/sendKakaotalk', apiMisc.sendKakaotalk);
 app.post('/sendClassConfirmation', apiMisc.sendClassConfirmation);
 app.post('/sendClassWaiting', apiMisc.sendClassWaiting);
+app.post('/sendClassChange', apiMisc.sendClassChange);
 app.post('/sendFortune', apiMisc.sendFortune);
 
 // Exaone 채팅 API

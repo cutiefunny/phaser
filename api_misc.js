@@ -275,6 +275,37 @@ exports.sendClassWaiting = async function(req, res) {
     }
 };
 
+exports.sendClassChange = async function(req, res) {
+    let { to, className, guide } = req.body;
+    if (!to || !className || !guide) {
+        return res.send({ result: "fail", message: "필수 정보(to, className, guide)가 누락되었습니다." });
+    }
+
+    const pfId = "KA01PF251023155453466zUYSFWha1ci";
+    const templateId = "KA01TP260331025036945mj7yaWFz7BK";
+
+    try {
+        const response = await messageService.send({
+            to: to,
+            from: process.env.SOLAPI_SENDER_NUMBER,
+            text: `[수업 변경 안내]\n\n수업명 : ${className}\n${guide}\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
+            kakaoOptions: {
+                pfId: pfId,
+                templateId: templateId,
+                variables: {
+                    "수업명": className,
+                    "안내문": guide
+                }
+            }
+        });
+        res.send({ result: "success", op: "sendClassChange", data: response });
+    } catch (e) {
+        logger.error("sendClassChange exception: " + e.message);
+        console.error("[Solapi Error Details]", JSON.stringify(e, null, 2));
+        res.send({ result: "fail", message: e.message, details: e });
+    }
+};
+
 exports.sendFortune = async function(req, res) {
     try {
         const snapshot = await db.collection('luckMembers').get();
