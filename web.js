@@ -106,6 +106,10 @@ app.get('/adventure', router.adventure);
 app.get('/seoulData', router.seoulData);
 app.get('/productAdmin', router.productAdmin);
 
+// [GET] Google Scripts 연결
+app.get('/260405', (req, res) => {
+  res.redirect('https://script.google.com/macros/s/AKfycbzyK72_3rDRhHeETinA0CKOPq0OWe8kmI8ZCG_H0P908cMT-COZP5edDPH3Ao6yyVNnuw/exec');
+});
 // [POST] 분산된 API 연결
 
 // 1. Agent 관련 (채팅, 검색) -> api_agent.js
