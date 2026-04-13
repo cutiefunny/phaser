@@ -25,10 +25,12 @@ console.log(`=== [DEBUG 2-1] 로컬 환경 판단: ${isLocal ? 'Y (로컬)' : 'N
 // const API = require("./API"); // 기존 통합 파일 주석 처리 또는 삭제
 const apiAgent = require('./api_agent'); // 챗봇, 검색, LangGraph
 const apiNews = require('./api_news');   // 뉴스 수집 및 조회
-const apiMisc = require('./api_misc');   // 운세, 상품관리, 알림톡, 기타
+const apiMisc = require('./api_misc');   // 운세, 상품관리, 기타
+const apiKakaotalk = require('./api_kakaotalk'); // 알림톡 (Solapi)
 const apiSns = require('./api_sns');   // SNS 게시글 및 댓글 관리
 const apiOpenClaw = require('./api_openclaw'); // OpenClaw 스타일 웹 크롤링
 const apiNyanyapang = require('./api_nyanyapang'); // 냐냐팡 점수 CRUD
+
 
 console.log('=== [DEBUG 7] 외부 라이브러리(cron, axios, redis, cors) 로딩 ===');
 const cron = require('node-cron');
@@ -128,16 +130,23 @@ app.post('/inqMainGameInfo', apiMisc.inqMainGameInfo);
 
 app.post('/getDailyFortune', apiMisc.getDailyFortune);
 app.post('/getOneFortune', apiMisc.getOneFortune);
-app.post('/sendKakaotalk', apiMisc.sendKakaotalk);
-app.post('/sendClassConfirmation', apiMisc.sendClassConfirmation);
-app.post('/sendClassWaiting', apiMisc.sendClassWaiting);
-app.post('/sendClassChange', apiMisc.sendClassChange);
-app.post('/sendFortune', apiMisc.sendFortune);
+
+// 4. Kakaotalk 관련 (알림톡) -> api_kakaotalk.js
+app.post('/sendKakaotalk', apiKakaotalk.sendKakaotalk);
+app.post('/sendClassConfirmation', apiKakaotalk.sendClassConfirmation);
+app.post('/sendClassWaiting', apiKakaotalk.sendClassWaiting);
+app.post('/sendClassChange', apiKakaotalk.sendClassChange);
+app.post('/sendClassQuestion', apiKakaotalk.sendClassQuestion);
+app.post('/sendClassRequestNotice', apiKakaotalk.sendClassRequestNotice);
+app.post('/sendClassAlarm', apiKakaotalk.sendClassAlarm);
+app.post('/sendFortune', apiKakaotalk.sendFortune);
+
 
 // Exaone 채팅 API
 app.post('/chatExaone', apiMisc.chatExaone);
 
-// 4. SNS 관련 (E-ink SNS)
+// 5. SNS 관련 (E-ink SNS)
+
 app.post('/sns/getPosts', apiSns.getPosts);       // 피드 불러오기
 app.post('/sns/createPost', apiSns.createPost);   // 글 쓰기
 app.post('/sns/deletePost', apiSns.deletePost);   // 글 삭제
@@ -160,7 +169,8 @@ app.post('/updateProduct', apiMisc.updateProduct);
 app.post('/deleteProduct', apiMisc.deleteProduct);
 app.post('/productInfo', apiMisc.productInfo);
 
-// 5. 냐냐팡 게임 관련 (점수 관리) -> api_nyanyapang.js
+// 6. 냐냐팡 게임 관련 (점수 관리) -> api_nyanyapang.js
+
 app.post('/nyanyapang/saveScore', apiNyanyapang.saveScorerHandler);
 app.post('/nyanyapang/getRecentScores', apiNyanyapang.getRecentScoresHandler);
 app.post('/nyanyapang/getPlayerScores', apiNyanyapang.getPlayerScoresHandler);
@@ -225,10 +235,11 @@ app.listen(port, '0.0.0.0', () => {
       // }
 
     } else if (currentHour === 8) {
-      // console.log('오늘의 운세톡 발송');
-      // // API.sendFortune -> apiMisc.sendFortune
-      // if (apiMisc) await apiMisc.sendFortune(null, null);
+      console.log('오늘의 운세톡 발송');
+      // API.sendFortune -> apiKakaotalk.sendFortune
+      if (apiKakaotalk) await apiKakaotalk.sendFortune(null, null);
     }
+
 
     // 매 시간 뉴스 업데이트
     console.log('뉴스 업데이트');

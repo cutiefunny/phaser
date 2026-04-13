@@ -6,11 +6,11 @@ const axios = require('axios');
 const moment = require('moment');
 const cheerio = require('cheerio');
 const { OpenAI } = require("openai");
-const { SolapiMessageService } = require("solapi");
+const apiKakaotalk = require('./api_kakaotalk'); 
 require('dotenv').config();
 
 const openai = new OpenAI(); // JSON Mode 용 별도 인스턴스
-const messageService = new SolapiMessageService(process.env.SOLAPI_API_KEY, process.env.SOLAPI_API_SECRET);
+
 
 // ==========================================
 // 상품 (Product) CRUD
@@ -149,29 +149,8 @@ exports.getDailyFortune = async function(req, res) {
     }
 };
 
-// 내부 사용용 (영어 명언 -> 한글 운세)
-async function generateFortune() {
-    try {
-        const apiKey = process.env.GOOGLE_API_KEY;
-        const adviceResponse = await axios.get('https://api.adviceslip.com/advice');
-        const originalText = adviceResponse.data.slip.advice;
-
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-        const geminiBody = {
-            contents: [{
-                parts: [{
-                    text: `Translate the following sentence into Korean efficiently and naturally, like a one-line fortune. Output only the Korean text without quotes.\n\nSentence: "${originalText}"`
-                }]
-            }]
-        };
-
-        const geminiResponse = await axios.post(geminiUrl, geminiBody, { headers: { 'Content-Type': 'application/json' }});
-        return geminiResponse.data.candidates[0].content.parts[0].text.trim();
-    } catch (e) {
-        logger.error("generateFortune internal error:", e);
-        throw e;
-    }
-}
+// 내부 사용용 (영어 명언 -> 한글 운세) - api_kakaotalk.js로 이동됨
+const generateFortune = apiKakaotalk.generateFortune;
 
 exports.getOneFortune = async function(req, res) {
     try {
@@ -183,176 +162,7 @@ exports.getOneFortune = async function(req, res) {
 };
 
 // ==========================================
-// Solapi (알림톡)
-// ==========================================
-
-exports.sendKakaotalk = async function(req, res) {
-    let { to, pfId, templateId, variables, text } = req.body;
-    if (!to || !pfId || !templateId) {
-        return res.send({ result: "fail", message: "Missing required fields" });
-    }
-
-    try {
-        const response = await messageService.send({
-            to: to,
-            from: process.env.SOLAPI_SENDER_NUMBER,
-            text: text || "알림톡 발송에 실패하여 문자로 대신 발송합니다.",
-            kakaoOptions: {
-                pfId: pfId,
-                templateId: templateId,
-                variables: variables || {}
-            }
-        });
-        res.send({ result: "success", op: "sendKakaotalk", data: response });
-    } catch (e) {
-        logger.error("sendKakaotalk exception: " + e.message);
-        res.send({ result: "fail", message: e.message });
-    }
-};
-
-exports.sendClassConfirmation = async function(req, res) {
-    let { to, className, classDate, userName } = req.body;
-    if (!to || !className || !classDate || !userName) {
-        return res.send({ result: "fail", message: "필수 정보(to, className, classDate, userName)가 누락되었습니다." });
-    }
-
-    const pfId = "KA01PF251023155453466zUYSFWha1ci";
-    const templateId = "KA01TP260331024937668DR33pfsqSPu";
-
-    try {
-        const response = await messageService.send({
-            to: to,
-            from: process.env.SOLAPI_SENDER_NUMBER,
-            text: `[수강 확정 안내]\n\n수업명 : ${className}\n수업일시 : ${classDate}\n신청자 : ${userName}\n\n취소는 수업신청 페이지에서 가능!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
-            kakaoOptions: {
-                pfId: pfId,
-                templateId: templateId,
-                variables: {
-                    "수업명": className,
-                    "수업일시": classDate,
-                    "이름": userName
-                }
-            }
-        });
-        res.send({ result: "success", op: "sendClassConfirmation", data: response });
-    } catch (e) {
-        logger.error("sendClassConfirmation exception: " + e.message);
-        console.error("[Solapi Error Details]", JSON.stringify(e, null, 2));
-        res.send({ result: "fail", message: e.message, details: e });
-    }
-};
-
-exports.sendClassWaiting = async function(req, res) {
-    let { to, className, classDate, userName, waitingNo } = req.body;
-    if (!to || !className || !classDate || !userName || !waitingNo) {
-        return res.send({ result: "fail", message: "필수 정보(to, className, classDate, userName, waitingNo)가 누락되었습니다." });
-    }
-
-    const pfId = "KA01PF251023155453466zUYSFWha1ci";
-    const templateId = "KA01TP260401033715801lucYG02Twnu";
-
-    try {
-        const response = await messageService.send({
-            to: to,
-            from: process.env.SOLAPI_SENDER_NUMBER,
-            text: `[수강 대기 안내]\n\n수업명 : ${className}\n수업일시 : ${classDate}\n신청자 : ${userName}\n대기순번 : ${waitingNo}\n\n기존 참여자의 취소로 인한 수강 확정 시 다시 카카오톡으로 알려 드립니다!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
-            kakaoOptions: {
-                pfId: pfId,
-                templateId: templateId,
-                variables: {
-                    "수업명": className,
-                    "수업일시": classDate,
-                    "이름": userName,
-                    "순번": waitingNo
-                }
-            }
-        });
-        res.send({ result: "success", op: "sendClassWaiting", data: response });
-    } catch (e) {
-        logger.error("sendClassWaiting exception: " + e.message);
-        console.error("[Solapi Error Details]", JSON.stringify(e, null, 2));
-        res.send({ result: "fail", message: e.message, details: e });
-    }
-};
-
-exports.sendClassChange = async function(req, res) {
-    let { to, className, guide } = req.body;
-    if (!to || !className || !guide) {
-        return res.send({ result: "fail", message: "필수 정보(to, className, guide)가 누락되었습니다." });
-    }
-
-    const pfId = "KA01PF251023155453466zUYSFWha1ci";
-    const templateId = "KA01TP260331025036945mj7yaWFz7BK";
-
-    try {
-        const response = await messageService.send({
-            to: to,
-            from: process.env.SOLAPI_SENDER_NUMBER,
-            text: `[수업 변경 안내]\n\n수업명 : ${className}\n${guide}\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
-            kakaoOptions: {
-                pfId: pfId,
-                templateId: templateId,
-                variables: {
-                    "수업명": className,
-                    "안내문": guide
-                }
-            }
-        });
-        res.send({ result: "success", op: "sendClassChange", data: response });
-    } catch (e) {
-        logger.error("sendClassChange exception: " + e.message);
-        console.error("[Solapi Error Details]", JSON.stringify(e, null, 2));
-        res.send({ result: "fail", message: e.message, details: e });
-    }
-};
-
-exports.sendFortune = async function(req, res) {
-    try {
-        const snapshot = await db.collection('luckMembers').get();
-        const phoneNumbers = [];
-        snapshot.forEach(doc => {
-            if (doc.data().phone) phoneNumbers.push(doc.data().phone);
-        });
-
-        if (phoneNumbers.length === 0) {
-            return res.send({ result: "success", message: "No recipients found." });
-        }
-
-        const messagePromises = phoneNumbers.map(async (phone) => {
-            try {
-                const fortuneText = await generateFortune();
-                return {
-                    to: phone,
-                    from: process.env.SOLAPI_SENDER_NUMBER,
-                    text: "오늘의 운세가 도착했어요!",
-                    kakaoOptions: {
-                        pfId: "KA01PF251023155453466zUYSFWha1ci",
-                        templateId: "KA01TP251023175627378FUOi9NrdvXQ",
-                        variables: { "운세": fortuneText }
-                    }
-                };
-            } catch (err) {
-                return null;
-            }
-        });
-
-        const results = await Promise.all(messagePromises);
-        const messagesToSend = results.filter(msg => msg !== null);
-
-        if (messagesToSend.length > 0) {
-            const response = await messageService.send(messagesToSend);
-            res.send({ result: "success", count: messagesToSend.length, solapiResponse: response });
-        } else {
-            throw new Error("발송할 메시지가 없습니다.");
-        }
-    } catch (e) {
-        logger.error("sendFortune error: " + e.message);
-        res.send({ result: "fail", message: e.message });
-    }
-};
-
-// ==========================================
-// 기타 (Scraping & Legacy)
+// Scraping & Legacy
 // ==========================================
 
 exports.getSearchMusclecat = async function(req, res) {
