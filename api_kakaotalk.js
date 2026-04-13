@@ -1,8 +1,10 @@
 const { db, admin } = require('./firebaseConfig');
 const logger = require("./logger");
 const axios = require('axios');
+const moment = require('moment');
 const { SolapiMessageService } = require("solapi");
 require('dotenv').config();
+
 
 const messageService = new SolapiMessageService(process.env.SOLAPI_API_KEY, process.env.SOLAPI_API_SECRET);
 
@@ -234,13 +236,13 @@ exports.sendClassAlarm = async function (req, res) {
         const response = await messageService.send({
             to: to,
             from: process.env.SOLAPI_SENDER_NUMBER,
-            text: `[금일 잡화점 수업 안내]\n\n수업명 : ${className}\n수업시간: ${classTime}\n\n곧 만나요!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
+            text: `[금일 잡화점 수업 안내]\n\n수업명 : ${className}\n수업시간: ${classTime}\n수업장소 : 독막로79 1층\n\n곧 만나요!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
             kakaoOptions: {
                 pfId: pfId,
                 templateId: templateId,
                 variables: {
                     "수업명": className,
-                    "시간": classTime
+                    "시간": `${classTime}\n수업장소 : 독막로79 1층`
                 }
             }
         });
@@ -293,5 +295,55 @@ exports.sendFortune = async function (req, res) {
     } catch (e) {
         logger.error("sendFortune error: " + e.message);
         res.send({ result: "fail", message: e.message });
+    }
+};
+
+exports.sendBatchClassAlarms = async function () {
+    try {
+        const today = moment().format('YYYY-MM-DD');
+        logger.info(`[sendBatchClassAlarms] Checking class for today: ${today}`);
+        
+        const docRef = db.collection('guitarClass').doc(today);
+        const doc = await docRef.get();
+
+        if (!doc.exists) {
+            logger.info(`[sendBatchClassAlarms] No class scheduled for today (${today}).`);
+            return;
+        }
+
+        const classData = doc.data();
+        const { className, classTime, students } = classData;
+
+        if (!students || !Array.isArray(students) || students.length === 0) {
+            logger.info(`[sendBatchClassAlarms] No students for today's class (${today}).`);
+            return;
+        }
+
+        logger.info(`[sendBatchClassAlarms] Sending alarms for class: ${className} at ${classTime} to ${students.length} students.`);
+
+        for (const student of students) {
+            if (student.phone) {
+                try {
+                    await messageService.send({
+                        to: student.phone,
+                        from: process.env.SOLAPI_SENDER_NUMBER,
+                        text: `[금일 잡화점 수업 안내]\n\n수업명 : ${className}\n수업시간: ${classTime}\n수업장소 : 독막로79 1층\n\n곧 만나요!\n\n-----\n해당 메세지는 고객님께서 신청하신 잡화점 수업에 대한 알림입니다.\n제공 : 근육고양이잡화점`,
+                        kakaoOptions: {
+                            pfId: "KA01PF251023155453466zUYSFWha1ci",
+                            templateId: "KA01TP260401074810183l3MBCkVj7p2",
+                            variables: {
+                                "수업명": className,
+                                "시간": `${classTime}\n수업장소 : 독막로79 1층`
+                            }
+                        }
+                    });
+                    logger.info(`[sendBatchClassAlarms] Sent to ${student.phone}`);
+                } catch (err) {
+                    logger.error(`[sendBatchClassAlarms] Failed to send to ${student.phone}: ${err.message}`);
+                }
+            }
+        }
+    } catch (e) {
+        logger.error(`[sendBatchClassAlarms] Error: ${e.message}`);
     }
 };
