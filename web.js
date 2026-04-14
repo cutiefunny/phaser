@@ -235,9 +235,9 @@ app.listen(port, '0.0.0.0', () => {
       // }
 
     } else if (currentHour === 8) {
-      console.log('오늘의 운세톡 발송');
-      // API.sendFortune -> apiKakaotalk.sendFortune
-      if (apiKakaotalk) await apiKakaotalk.sendFortune(null, null);
+      // console.log('오늘의 운세톡 발송');
+      // // API.sendFortune -> apiKakaotalk.sendFortune
+      // if (apiKakaotalk) await apiKakaotalk.sendFortune(null, null);
     } else if (currentHour === 11) {
       console.log('기타 수업 알림톡 발송');
       if (apiKakaotalk) await apiKakaotalk.sendBatchClassAlarms();
