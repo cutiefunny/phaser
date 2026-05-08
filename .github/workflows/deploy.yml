@@ -56,6 +56,8 @@ jobs:
               --name phaser \
               --env-file /root/phaser/.env \
               -e LOCAL_AI_URL="${{ secrets.LOCAL_AI_URL }}" \
+              -e HANTU_APP="${{ secrets.HANTU_APP }}" \
+              -e HANTU_SECRET="${{ secrets.HANTU_SECRET }}" \
               -p 8000:8000 \
               --restart always \
               ${{ secrets.DOCKER_USERNAME }}/phaser:latest
