@@ -24,7 +24,10 @@ jobs:
       # [추가됨] 2.5. 보안 키 파일 생성
       # Secrets에 저장된 JSON 내용을 꺼내서 실제 파일로 만듭니다.
       - name: Create serviceAccountKey.json
-        run: echo '${{ secrets.FIREBASE_KEY_JSON }}' > serviceAccountKey.json
+        run: |
+          cat <<'EOF' > serviceAccountKey.json
+          ${{ secrets.FIREBASE_KEY_JSON }}
+          EOF
 
       # 3. Docker 이미지 빌드 및 푸시
       - name: Build and push Docker image
