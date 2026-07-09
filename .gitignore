@@ -2,6 +2,7 @@ logs/
 /script/config.js
 .env
 serviceAccountKey.json
+serviceAccountKey_backup.json
 
 *.log
 *.gz
